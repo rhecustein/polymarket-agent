@@ -1,0 +1,35 @@
+# Environment
+.env
+*.env.local
+
+# Rust
+target/
+**/*.rs.bk
+
+# Database
+*.db
+*.db-journal
+
+# Data
+data/
+*.jsonl
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Stop file
+STOP
+
+# Node (dashboard)
+node_modules/
+.next/

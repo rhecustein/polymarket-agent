@@ -1,0 +1,29 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build Agent
+        run: cargo build --manifest-path agent/Cargo.toml
+
+      - name: Build Proxy
+        run: cargo build --manifest-path proxy/Cargo.toml
+
+      - name: Test Agent
+        run: cargo test --manifest-path agent/Cargo.toml
+
+      - name: Test Proxy
+        run: cargo test --manifest-path proxy/Cargo.toml
+
+      - name: Clippy Agent
+        run: cargo clippy --manifest-path agent/Cargo.toml -- -D warnings
+
+      - name: Clippy Proxy
+        run: cargo clippy --manifest-path proxy/Cargo.toml -- -D warnings

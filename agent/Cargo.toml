@@ -1,0 +1,44 @@
+[package]
+name = "polymarket-agent"
+version = "2.0.0"
+edition = "2021"
+description = "Autonomous AI Trading Agent for Polymarket — 14-Agent Company"
+license = "MIT"
+repository = "https://github.com/bintangworks/polymarket-agent"
+readme = "../README.md"
+keywords = ["polymarket", "trading", "ai", "prediction-markets", "autonomous-agent"]
+categories = ["finance", "command-line-utilities"]
+
+[[bin]]
+name = "polyagent"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rust_decimal = { version = "1", features = ["serde-with-str", "serde-with-float"] }
+rust_decimal_macros = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+dotenvy = "0.15"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+chrono = { version = "0.4", features = ["serde"] }
+lettre = { version = "0.11", default-features = false, features = ["tokio1-rustls-tls", "smtp-transport", "builder"] }
+anyhow = "1"
+thiserror = "1"
+clap = { version = "4", features = ["derive"] }
+uuid = { version = "1", features = ["v4"] }
+rand = "0.8"
+ethers = { version = "2", features = ["rustls"] }
+futures = "0.3"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
+hostname = "0.4"
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = true

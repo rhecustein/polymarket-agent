@@ -1,0 +1,8 @@
+{
+  "min_edge": 0.07,
+  "min_confidence": 0.50,
+  "kelly_fraction": 0.40,
+  "max_position_pct": 0.10,
+  "scan_interval_secs": 3600,
+  "message": "Default parameters. Will be updated as community data grows."
+}

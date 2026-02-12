@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  agent:
+    build: ./agent
+    env_file: ./agent/.env
+    volumes:
+      - agent-data:/app/data
+    restart: unless-stopped
+    depends_on:
+      - proxy
+
+  proxy:
+    build: ./proxy
+    env_file: ./proxy/.env
+    ports:
+      - "8080:8080"
+    restart: unless-stopped
+
+volumes:
+  agent-data:

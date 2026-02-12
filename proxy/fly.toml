@@ -1,0 +1,18 @@
+app = "polymarket-agent-proxy"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  RUST_LOG = "info"
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+[[vm]]
+  cpu_kind = "shared"
+  cpus = 1
+  memory_mb = 256
