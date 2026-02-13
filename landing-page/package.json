@@ -1,0 +1,19 @@
+{
+  "name": "polymarket-agent-landing",
+  "version": "1.0.0",
+  "description": "Landing page for Polymarket AI Agent",
+  "main": "index.html",
+  "scripts": {
+    "dev": "python -m http.server 8000",
+    "build": "echo 'Static site - no build needed'"
+  },
+  "keywords": [
+    "polymarket",
+    "ai",
+    "trading",
+    "rust",
+    "autonomous"
+  ],
+  "author": "rhecustein",
+  "license": "MIT"
+}
