@@ -4,7 +4,7 @@ Modern landing page for the Polymarket AI Agent project.
 
 ## 🚀 Live Demo
 
-Visit: [https://polymarket-agent-three.vercel.app/](https://polymarket-agent-three.vercel.app/)
+Visit: [https://https://rhecustein-polymarket-agent.vercel.app//](https://https://rhecustein-polymarket-agent.vercel.app//)
 
 ## 📦 Features
 

@@ -32,7 +32,8 @@
       "Bash(git add:*)",
       "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd multi-agent dashboard, paper trading simulation, and project infrastructure\n\n- Add multi-agent dashboard with 10 strategy presets \\(agent/src/bin/dashboard.rs\\)\n- Implement paper trading simulation with fees, slippage, and market impact modeling\n- Add SimConfig for configurable simulation parameters\n- Extend Trade struct with 8 simulation tracking fields\n- Add database migration for simulation columns\n- Add run.sh script for starting proxy and dashboard\n- Add reset-db scripts for database management\n- Add comprehensive project documentation \\(SETUP.md\\)\n- Update .gitignore to exclude generated configs\n- Add .env.example for configuration template\n- Add workspace Cargo.toml for multi-crate project\n- Update copyright and repository references\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
       "Bash(git push:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git fetch:*)"
     ]
   }
 }
