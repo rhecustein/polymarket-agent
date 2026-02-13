@@ -125,30 +125,77 @@ impl TelegramAlert {
         self.send_message(&text).await
     }
 
-    /// Send trade closed alert with P&L
+    /// Send trade closed alert with TP/SL-specific rich notifications
     pub async fn send_trade_closed_alert(&self, trade: &Trade) -> Result<()> {
         if !self.is_configured() {
             return Ok(());
         }
 
         let pnl_sign = if trade.pnl > rust_decimal::Decimal::ZERO { "+" } else { "" };
-        let emoji = if trade.pnl > rust_decimal::Decimal::ZERO { "WIN" } else { "LOSS" };
-        let reason = trade.exit_reason.map(|r| format!("{}", r)).unwrap_or_else(|| "?".to_string());
         let hold = trade.hold_duration_hours.unwrap_or(0.0);
+        let exit_price = trade.exit_price.unwrap_or_default();
+        let pnl_pct = if trade.bet_size > rust_decimal::Decimal::ZERO {
+            (trade.pnl / trade.bet_size * rust_decimal::Decimal::from(100)).to_string().parse::<f64>().unwrap_or(0.0)
+        } else { 0.0 };
+
+        let reason = trade.exit_reason;
+        let mode = trade.trade_mode.as_deref().unwrap_or("?");
+
+        // TP/SL-specific header with distinct formatting
+        let (header, target_line) = match reason {
+            Some(crate::types::ExitReason::TakeProfit) => {
+                let tp_str = trade.take_profit
+                    .map(|tp| format!("TP Target: ${} (HIT)", tp))
+                    .unwrap_or_else(|| "TP Target: HIT".to_string());
+                (
+                    format!("<b>[TP HIT] TRADE CLOSED</b>"),
+                    format!("\n{}", tp_str),
+                )
+            }
+            Some(crate::types::ExitReason::StopLoss) => {
+                let sl_str = trade.stop_loss
+                    .map(|sl| format!("SL Level: ${} (TRIGGERED)", sl))
+                    .unwrap_or_else(|| "SL Level: TRIGGERED".to_string());
+                (
+                    format!("<b>[SL HIT] TRADE CLOSED</b>"),
+                    format!("\n{}", sl_str),
+                )
+            }
+            Some(crate::types::ExitReason::EdgeCaptured) => (
+                format!("<b>[EDGE CAPTURED] TRADE CLOSED</b>"),
+                String::new(),
+            ),
+            Some(crate::types::ExitReason::SafetyValve) => (
+                format!("<b>[SAFETY VALVE] TRADE CLOSED</b>"),
+                String::new(),
+            ),
+            Some(crate::types::ExitReason::TimeExpiry) => (
+                format!("<b>[TIME EXPIRY] TRADE CLOSED</b>"),
+                String::new(),
+            ),
+            Some(crate::types::ExitReason::MarketResolved) => (
+                format!("<b>[MARKET RESOLVED] TRADE CLOSED</b>"),
+                String::new(),
+            ),
+            _ => {
+                let emoji = if trade.pnl > rust_decimal::Decimal::ZERO { "WIN" } else { "LOSS" };
+                (format!("<b>[{emoji}] TRADE CLOSED</b>"), String::new())
+            }
+        };
+
+        let win_loss = if trade.pnl > rust_decimal::Decimal::ZERO { "WIN" } else { "LOSS" };
 
         let text = format!(
-            "<b>[{emoji}] PAPER TRADE CLOSED</b>\n\
-            '{q}'\n\
-            Entry: ${entry} -> Exit: ${exit}\n\
-            P&amp;L: {pnl_sign}${pnl} ({pnl_sign}{pnl_pct:.1}%)\n\
-            Reason: {reason} | Held: {hold:.1}h",
+            "{header}\n\
+            {dir} [{mode}] '{q}'\n\
+            Entry: ${entry} → Exit: ${exit} ({pnl_sign}{pnl_pct:.1}%)\n\
+            P&amp;L: {pnl_sign}${pnl} | {win_loss} | Held: {hold:.1}h{target}",
+            dir = trade.direction,
             q = &trade.question[..trade.question.len().min(60)],
             entry = trade.entry_price,
-            exit = trade.exit_price.unwrap_or_default(),
+            exit = exit_price,
             pnl = trade.pnl.abs(),
-            pnl_pct = if trade.bet_size > rust_decimal::Decimal::ZERO {
-                (trade.pnl / trade.bet_size * rust_decimal::Decimal::from(100)).to_string().parse::<f64>().unwrap_or(0.0)
-            } else { 0.0 },
+            target = target_line,
         );
 
         self.send_message(&text).await

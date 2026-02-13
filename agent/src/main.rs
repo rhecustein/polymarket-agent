@@ -19,12 +19,14 @@ use crate::data::polymarket::GammaScanner;
 use crate::db::StateStore;
 use crate::email::EmailAlert;
 use crate::live::ClobClient;
-use crate::paper::Portfolio;
+use crate::paper::{Portfolio, SimConfig};
 use crate::strategy::{check_consecutive_losses, survival_adjust, LossAction};
 use crate::telegram::{TelegramAlert, TelegramCommand};
 use anyhow::Result;
 use clap::Parser;
 use rust_decimal::Decimal;
+use std::io::{self, Write};
+use std::str::FromStr;
 use tracing::{error, info, warn};
 
 #[derive(Parser)]
@@ -49,6 +51,10 @@ struct Cli {
     /// Knowledge-only mode: analyze markets but skip all trade execution
     #[arg(long)]
     knowledge_only: bool,
+
+    /// Skip interactive configuration and use defaults/env
+    #[arg(long, short = 'y')]
+    yes: bool,
 }
 
 #[tokio::main]
@@ -69,6 +75,13 @@ async fn main() -> Result<()> {
 
     let knowledge_only = cli.knowledge_only || cfg.knowledge_only;
     let interval = cli.interval.unwrap_or(cfg.scan_interval_secs);
+
+    // Interactive Setup (unless --yes passed or skipped via env)
+    // We check raw args because we haven't added --yes to Clap yet, or we can just add it to Clap.
+    // Let's add it to Clap struct below in next edit, for now just call the function.
+    if !cli.yes {
+        interactive_configuration(&mut cfg)?;
+    }
 
     // ═══════════════════════════════════════════
     let agent_label = cli.agent_id.as_deref().unwrap_or("default");
@@ -115,6 +128,9 @@ async fn main() -> Result<()> {
         warn!("Claude API key not set — Judge will use Gemini for all candidates");
     }
     let portfolio = Portfolio::new(cfg.initial_balance);
+    let sim = SimConfig::from_config(&cfg);
+    info!("Simulation: fees={} slippage={} fills={} impact={}",
+        sim.fees_enabled, sim.slippage_enabled, sim.fills_enabled, sim.impact_enabled);
     let store = StateStore::new(&cfg.db_path)?;
     let emailer = EmailAlert::new(
         &cfg.smtp_host, cfg.smtp_port, &cfg.smtp_user, &cfg.smtp_pass,
@@ -181,11 +197,11 @@ async fn main() -> Result<()> {
     let start_time = std::time::Instant::now();
     let mut tg_update_id: i64 = 0;
 
-    // Compute deterministic jitter (0-60s) from agent_id
+    // Compute deterministic jitter (0-300s) from agent_id to spread API load across agents
     let scan_jitter_secs: u64 = {
         let id_str = cli.agent_id.as_deref().unwrap_or("default");
         let hash: u64 = id_str.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
-        hash % 61
+        hash % 301
     };
     if scan_jitter_secs > 0 {
         info!("Scan jitter: {}s delay", scan_jitter_secs);
@@ -230,19 +246,19 @@ async fn main() -> Result<()> {
                         paused = true;
                     }
                     // Still monitor positions during pause
-                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count).await;
+                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
                     sleep_or_shutdown(&mut shutdown_rx, interval).await;
                     continue;
                 }
                 LossAction::ReduceSize => {
                     if loss_reduction_trades_left == 0 {
-                        warn!("8+ losses: reducing position 50% for 3 trades");
+                        warn!("4+ losses: reducing position 50% for 3 trades");
                         loss_reduction_trades_left = 3;
                     }
                 }
                 LossAction::SkipCycle => {
-                    warn!("5+ losses: skipping this cycle");
-                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count).await;
+                    warn!("3+ losses: skipping this cycle");
+                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
                     sleep_or_shutdown(&mut shutdown_rx, interval).await;
                     continue;
                 }
@@ -266,7 +282,7 @@ async fn main() -> Result<()> {
 
         // ── Step 2: Resolve Open Trades ──
         if !knowledge_only {
-            resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count).await;
+            resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
         }
 
         // ── Step 3: Run Team Pipeline ──
@@ -368,7 +384,7 @@ async fn main() -> Result<()> {
                 }
                 TelegramCommand::Stop => {
                     info!("STOP SIGNAL (Telegram /stop)");
-                    graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time).await;
+                    graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time, &sim).await;
                     return Ok(());
                 }
                 TelegramCommand::Trades => {
@@ -458,7 +474,7 @@ async fn main() -> Result<()> {
                 match gamma.scan(cfg.max_markets_to_scan).await {
                     Ok(fresh_markets) => {
                         let resolved = portfolio.resolve_with_prices(
-                            &fresh_markets, cfg.exit_tp_pct, cfg.exit_sl_pct);
+                            &fresh_markets, cfg.exit_tp_pct, cfg.exit_sl_pct, &sim);
                         for trade in &resolved {
                             store.save_trade(trade).ok();
                             let reason = trade.exit_reason.map(|r| format!("{}", r))
@@ -479,12 +495,12 @@ async fn main() -> Result<()> {
             }
 
             if shutdown {
-                graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time).await;
+                graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time, &sim).await;
                 break;
             }
         } else {
             if !sleep_or_shutdown(&mut shutdown_rx, interval).await {
-                graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time).await;
+                graceful_shutdown(&portfolio, &gamma, &store, &emailer, &telegram, cycle, start_time, &sim).await;
                 break;
             }
         }
@@ -501,12 +517,13 @@ async fn resolve_open_trades(
     telegram: &TelegramAlert,
     cfg: &Config,
     audit_count: &mut usize,
+    sim: &SimConfig,
 ) {
     let markets = match gamma.scan(cfg.max_markets_to_scan).await {
         Ok(m) => m,
         Err(e) => { error!("Pre-resolve scan failed: {e}"); return; }
     };
-    let resolved = portfolio.resolve_with_prices(&markets, cfg.exit_tp_pct, cfg.exit_sl_pct);
+    let resolved = portfolio.resolve_with_prices(&markets, cfg.exit_tp_pct, cfg.exit_sl_pct, sim);
     for trade in &resolved {
         store.save_trade(trade).ok();
         telegram.send_trade_closed_alert(trade).await.ok();
@@ -526,12 +543,13 @@ async fn graceful_shutdown(
     telegram: &TelegramAlert,
     cycle: u64,
     start_time: std::time::Instant,
+    sim: &SimConfig,
 ) {
     info!("═══ GRACEFUL SHUTDOWN ═══");
 
     // Step 1: Mark all open positions to market
     let markets = gamma.scan(200).await.unwrap_or_default();
-    let closed = portfolio.close_all_positions(&markets);
+    let closed = portfolio.close_all_positions(&markets, sim);
     info!("Step 1: Closed {} open positions", closed.len());
     for trade in &closed {
         store.save_trade(trade).ok();
@@ -582,3 +600,73 @@ async fn sleep_or_shutdown(
         _ = rx.changed() => false,
     }
 }
+
+fn interactive_configuration(cfg: &mut Config) -> Result<()> {
+    // If not TTY, we might want to skip, but for now we assume TTY if yes is false.
+    // Actually we can check if it's a TTY, but let's keep it simple.
+
+    println!("\n╔══════════════════════════════════════════════════════════╗");
+    println!("║     POLYMARKET AGENT SETUP — v2.0 BATTLE TEST            ║");
+    println!("╚══════════════════════════════════════════════════════════╝");
+    
+    // 1. Trading Mode
+    println!("\n[1/3] TRADING MODE SELECTION");
+    println!("  1) PAPER TRADING (Simulation - Recommended for testing)");
+    println!("  2) LIVE TRADING  (REAL MONEY - RISKY)");
+    print!("\n  Select Mode [default: 1]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    match input.trim() {
+        "2" => cfg.paper_trading = false,
+        _ => cfg.paper_trading = true,
+    }
+
+    // 2. Initial Balance
+    println!("\n[2/3] INITIAL BALANCE CONFIGURATION");
+    println!("  Current Configured Balance: ${}", cfg.initial_balance);
+    if !cfg.paper_trading {
+         println!("  ⚠️  LIVE MODE: This must match your wallet balance for risk calc.");
+    } else {
+         println!("  (Virtual balance for simulation)");
+    }
+    print!("\n  Enter Initial Balance [default: ${}]: ", cfg.initial_balance);
+    io::stdout().flush()?;
+
+    input.clear();
+    io::stdin().read_line(&mut input)?;
+    let input_trim = input.trim();
+    if !input_trim.is_empty() {
+        if let Ok(val) = Decimal::from_str(input_trim) {
+            cfg.initial_balance = val;
+        } else {
+             println!("  Invalid number, keeping default.");
+        }
+    }
+
+    // 3. Balance Alert / Confirmation
+    println!("\n[3/3] PRE-FLIGHT CHECK");
+    println!("  • Mode:            {}", if cfg.paper_trading { "PAPER TRADING (Safe)" } else { "LIVE TRADING (Real Funds)" });
+    println!("  • Initial Balance: ${}", cfg.initial_balance);
+    println!("  • Kill Threshold:  ${}", cfg.kill_threshold);
+    
+    if !cfg.paper_trading {
+        println!("\n  🛑 CRITICAL WARNING: YOU ARE ABOUT TO START LIVE TRADING.");
+        println!("  Ensure your wallet has at least ${} + gas fees.", cfg.initial_balance);
+        println!("  The agent will execute real transactions on Polymarket.");
+    }
+
+    print!("\n  >>> START AGENT? [Y/n]: ");
+    io::stdout().flush()?;
+    input.clear();
+    io::stdin().read_line(&mut input)?;
+
+    if input.trim().eq_ignore_ascii_case("n") {
+        println!("\nAborted by user.");
+        std::process::exit(0);
+    }
+    println!("\nStarting engine...");
+    Ok(())
+}
+

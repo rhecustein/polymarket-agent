@@ -18,7 +18,7 @@ use crate::telegram::TelegramAlert;
 use crate::analyzer::claude::ClaudeClient;
 use crate::analyzer::gemini::GeminiClient;
 use crate::config::Config;
-use crate::paper::Portfolio;
+use crate::paper::{Portfolio, SimConfig};
 use crate::data::Enricher;
 use crate::live::ClobClient;
 use crate::data::polymarket::GammaScanner;
@@ -26,6 +26,7 @@ use crate::db::StateStore;
 use crate::types::Direction;
 use futures::future::join_all;
 use rust_decimal::Decimal;
+use std::str::FromStr;
 use tracing::{error, info, warn};
 use types::{detect_desk, DeskType, TeamCycleStats};
 
@@ -46,11 +47,16 @@ pub async fn run_cycle(
     max_deep_analysis: usize,
 ) -> TeamCycleStats {
     let mut stats = TeamCycleStats::default();
+    let sim = SimConfig::from_config(config);
 
     // ═══════════════════════════════════════════
     // PHASE 1: INTELLIGENCE (parallel)
     // ═══════════════════════════════════════════
+    // ═══════════════════════════════════════════
+    // PHASE 1: INTELLIGENCE (parallel)
+    // ═══════════════════════════════════════════
     info!("═══ PHASE 1: SCOUT + RESEARCH ═══");
+    store.update_status("scanning", "Scanning markets for opportunities...").ok();
 
     // Scout: scan + filter + score (all categories)
     let scout_report = match scout::scan(scanner, config, max_candidates).await {
@@ -64,7 +70,8 @@ pub async fn run_cycle(
     stats.markets_passed_quality = scout_report.total_passed_quality;
 
     if scout_report.candidates.is_empty() {
-        info!("Scout: no candidates found");
+        warn!("Scout: no candidates found (scanned={}, passed_quality={}) — check min_edge/min_confidence thresholds",
+            scout_report.total_scanned, scout_report.total_passed_quality);
         return stats;
     }
 
@@ -95,17 +102,27 @@ pub async fn run_cycle(
 
     stats.markets_researched = research_results.len();
 
+    // Estimate Researcher API cost: ~$0.00015 per market researched
+    let research_cost = Decimal::from_str("0.00015").unwrap() * Decimal::from(research_results.len());
+    stats.api_cost += research_cost;
+
     info!(
-        "Phase 1 complete: {} data packs, {} research dossiers",
+        "Phase 1 complete: {} data packs, {} research dossiers (API cost: ${:.4})",
         data_packs.len(),
         research_results.len(),
+        research_cost
     );
 
     // ═══════════════════════════════════════════
     // PHASE 2-4: PARALLEL PER CANDIDATE
     // Specialist Desk -> Bull/Bear -> Judge -> Risk -> Strategist -> Execute
     // ═══════════════════════════════════════════
+    // ═══════════════════════════════════════════
+    // PHASE 2-4: PARALLEL PER CANDIDATE
+    // Specialist Desk -> Bull/Bear -> Judge -> Risk -> Strategist -> Execute
+    // ═══════════════════════════════════════════
     info!("═══ PHASE 2-4: PARALLEL ANALYSIS ({} candidates) ═══", candidates.len().min(max_deep_analysis));
+    store.update_status("analyzing", &format!("Analyzing {} candidates...", candidates.len())).ok();
 
     let analysis_limit = max_deep_analysis.min(candidates.len());
 
@@ -123,6 +140,7 @@ pub async fn run_cycle(
                 .and_then(|(_, r)| r.as_ref().ok())
                 .cloned();
 
+            let sim_clone = sim.clone();
             analyze_candidate(
                 i,
                 analysis_limit,
@@ -136,6 +154,7 @@ pub async fn run_cycle(
                 store,
                 telegram,
                 effective_max_pct,
+                sim_clone,
             )
         })
         .collect();
@@ -147,15 +166,19 @@ pub async fn run_cycle(
         stats.markets_analyzed += result.analyzed;
         stats.markets_approved += result.approved;
         stats.trades_placed += result.traded;
+        stats.api_cost += result.api_cost;
     }
 
+    store.update_status("idle", "Cycle complete. Waiting for next run...").ok();
+
     info!(
-        "═══ CYCLE COMPLETE: scanned={} researched={} analyzed={} approved={} traded={} ═══",
+        "═══ CYCLE COMPLETE: scanned={} researched={} analyzed={} approved={} traded={} (API cost: ${:.4}) ═══",
         stats.markets_scanned,
         stats.markets_researched,
         stats.markets_analyzed,
         stats.markets_approved,
         stats.trades_placed,
+        stats.api_cost,
     );
 
     stats
@@ -166,6 +189,7 @@ struct CandidateResult {
     analyzed: usize,
     approved: usize,
     traded: usize,
+    api_cost: Decimal,
 }
 
 /// Analyze a single candidate through the full pipeline:
@@ -183,11 +207,13 @@ async fn analyze_candidate(
     store: &StateStore,
     telegram: &TelegramAlert,
     effective_max_pct: Decimal,
+    sim: SimConfig,
 ) -> CandidateResult {
     let mut result = CandidateResult {
         analyzed: 0,
         approved: 0,
         traded: 0,
+        api_cost: Decimal::ZERO,
     };
 
     let market_id = &candidate.market.id;
@@ -226,6 +252,11 @@ async fn analyze_candidate(
 
     let desk_report = match desk_report {
         Ok(r) => {
+            // Estimate Gemini API cost: ~500 input + ~300 output tokens
+            // Tier 1: $0.10/1M input, $0.40/1M output
+            let est_cost = Decimal::from_str("0.00017").unwrap(); // ~$0.00017 per desk call
+            result.api_cost += est_cost;
+
             info!(
                 "  Desk[{}]: prob={:.0}% conf={:.0}%",
                 r.desk,
@@ -248,6 +279,8 @@ async fn analyze_candidate(
 
     let bull = match bull_result {
         Ok(b) => {
+            // Estimate cost for Bull analyst
+            result.api_cost += Decimal::from_str("0.00015").unwrap();
             info!(
                 "  Bull: {:.0}% YES ({})",
                 b.probability_yes * 100.0,
@@ -263,6 +296,8 @@ async fn analyze_candidate(
 
     let bear = match bear_result {
         Ok(b) => {
+            // Estimate cost for Bear analyst
+            result.api_cost += Decimal::from_str("0.00015").unwrap();
             info!(
                 "  Bear: {:.0}% NO ({})",
                 b.probability_no * 100.0,
@@ -285,6 +320,14 @@ async fn analyze_candidate(
     .await
     {
         Ok(v) => {
+            // Estimate cost: Sonnet ~$0.015/1M in + $0.075/1M out, Gemini ~$0.10/1M in + $0.40/1M out
+            let judge_cost = if use_sonnet {
+                Decimal::from_str("0.0005").unwrap() // Sonnet: ~500 tokens more expensive
+            } else {
+                Decimal::from_str("0.0002").unwrap() // Gemini
+            };
+            result.api_cost += judge_cost;
+
             info!(
                 "  Judge{}: fair={:.2} conf={:.2} -> {}",
                 if use_sonnet { "[Sonnet]" } else { "[Gemini]" },
@@ -308,7 +351,7 @@ async fn analyze_candidate(
     }
 
     // ── Risk Manager ──
-    let risk = risk_manager::check(&verdict, portfolio, config, effective_max_pct);
+    let risk = risk_manager::check(&verdict, portfolio, config, effective_max_pct, candidate.market.yes_price);
     if !risk.approved {
         info!("  -> REJECTED by Risk Manager: {}", risk.reason);
         return result;
@@ -335,7 +378,8 @@ async fn analyze_candidate(
     }
 
     // ── Executor ──
-    if let Some(_trade) = executor::execute(&plan, portfolio, store, telegram).await {
+    store.update_status("trading", &format!("Executing {} trade...", verdict.direction)).ok();
+    if let Some(_trade) = executor::execute(&plan, portfolio, store, telegram, &sim).await {
         result.traded = 1;
     }
 

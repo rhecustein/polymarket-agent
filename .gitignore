@@ -33,3 +33,6 @@ STOP
 # Node (dashboard)
 node_modules/
 .next/
+
+# Generated Configs
+configs/

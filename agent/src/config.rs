@@ -53,6 +53,24 @@ pub struct Config {
     pub max_open_positions: usize, // max concurrent open positions (default 8)
     pub report_interval_hours: u64, // periodic email report interval (default 12)
     pub max_spread: Decimal,       // max acceptable bid-ask spread (default 0.05)
+    // Paper Trading Plus — Realistic Simulation
+    pub sim_fees_enabled: bool,
+    pub sim_slippage_enabled: bool,
+    pub sim_fills_enabled: bool,
+    pub sim_impact_enabled: bool,
+    pub sim_gas_fee_min: Decimal,
+    pub sim_gas_fee_max: Decimal,
+    pub sim_platform_fee_pct: Decimal,
+    pub sim_maker_fee_pct: Decimal,
+    pub sim_taker_fee_pct: Decimal,
+    pub sim_base_slippage_pct: Decimal,
+    pub sim_size_penalty_pct: Decimal,
+    pub sim_size_penalty_threshold: Decimal,
+    pub sim_reject_probability: Decimal,
+    pub sim_partial_fill_probability: Decimal,
+    pub sim_min_liquidity_volume: Decimal,
+    pub sim_impact_threshold: Decimal,
+    pub sim_impact_per_dollar_pct: Decimal,
 }
 
 impl Config {
@@ -85,8 +103,8 @@ impl Config {
             claude_model_sonnet: env("CLAUDE_MODEL_SONNET", "claude-sonnet-4-5-20250929"),
             initial_balance: env_decimal("INITIAL_BALANCE", "30.00")?,
             max_position_pct: env_decimal("MAX_POSITION_PCT", "0.08")?,
-            min_edge_threshold: env_decimal("MIN_EDGE_THRESHOLD", "0.05")?,
-            kill_threshold: env_decimal("KILL_THRESHOLD", "3.00")?,
+            min_edge_threshold: env_decimal("MIN_EDGE_THRESHOLD", "0.08")?,
+            kill_threshold: env_decimal("KILL_THRESHOLD", "15.00")?,
             kelly_fraction: env_decimal("KELLY_FRACTION", "0.40")?,
             scan_interval_secs: env("SCAN_INTERVAL_SECS", "1800").parse().unwrap_or(1800),
             max_markets_to_scan: env("MAX_MARKETS_SCAN", "700").parse().unwrap_or(700),
@@ -114,11 +132,11 @@ impl Config {
             gemini_api_key: env("GEMINI_API_KEY", ""),
             screen_model: env("SCREEN_MODEL", "gemini"),
             deep_model: env("DEEP_MODEL", "gemini"),
-            min_confidence: env_decimal("MIN_CONFIDENCE", "0.50")?,
+            min_confidence: env_decimal("MIN_CONFIDENCE", "0.60")?,
             category_filter: env("CATEGORY_FILTER", "all"),
             exit_tp_pct: env_decimal("EXIT_TP_PCT", "0")?,
             exit_sl_pct: env_decimal("EXIT_SL_PCT", "0")?,
-            price_check_secs: env("PRICE_CHECK_SECS", "180").parse().unwrap_or(180),
+            price_check_secs: env("PRICE_CHECK_SECS", "90").parse().unwrap_or(90),
             generation: env("GENERATION", "1").parse().unwrap_or(1),
             knowledge_only: env("KNOWLEDGE_ONLY", "false") == "true",
             balance_reserve_pct: env_decimal("BALANCE_RESERVE_PCT", "0.10")?,
@@ -129,6 +147,24 @@ impl Config {
             max_open_positions: env("MAX_OPEN_POSITIONS", "8").parse().unwrap_or(8),
             report_interval_hours: env("REPORT_INTERVAL_HOURS", "12").parse().unwrap_or(12),
             max_spread: env_decimal("MAX_SPREAD", "0.05")?,
+            // Paper Trading Plus — Realistic Simulation
+            sim_fees_enabled: env("SIM_FEES_ENABLED", "true") == "true",
+            sim_slippage_enabled: env("SIM_SLIPPAGE_ENABLED", "true") == "true",
+            sim_fills_enabled: env("SIM_FILLS_ENABLED", "true") == "true",
+            sim_impact_enabled: env("SIM_IMPACT_ENABLED", "true") == "true",
+            sim_gas_fee_min: env_decimal("SIM_GAS_FEE_MIN", "0.01")?,
+            sim_gas_fee_max: env_decimal("SIM_GAS_FEE_MAX", "0.05")?,
+            sim_platform_fee_pct: env_decimal("SIM_PLATFORM_FEE_PCT", "0.02")?,
+            sim_maker_fee_pct: env_decimal("SIM_MAKER_FEE_PCT", "0.00")?,
+            sim_taker_fee_pct: env_decimal("SIM_TAKER_FEE_PCT", "0.00")?,
+            sim_base_slippage_pct: env_decimal("SIM_BASE_SLIPPAGE_PCT", "0.001")?,
+            sim_size_penalty_pct: env_decimal("SIM_SIZE_PENALTY_PCT", "0.005")?,
+            sim_size_penalty_threshold: env_decimal("SIM_SIZE_PENALTY_THRESHOLD", "1.00")?,
+            sim_reject_probability: env_decimal("SIM_REJECT_PROBABILITY", "0.05")?,
+            sim_partial_fill_probability: env_decimal("SIM_PARTIAL_FILL_PROBABILITY", "0.15")?,
+            sim_min_liquidity_volume: env_decimal("SIM_MIN_LIQUIDITY_VOLUME", "10.00")?,
+            sim_impact_threshold: env_decimal("SIM_IMPACT_THRESHOLD", "2.00")?,
+            sim_impact_per_dollar_pct: env_decimal("SIM_IMPACT_PER_DOLLAR_PCT", "0.003")?,
         })
     }
 }

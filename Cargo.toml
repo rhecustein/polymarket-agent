@@ -1,0 +1,9 @@
+[workspace]
+members = [
+    "agent",
+    "proxy"
+]
+
+# Use the new feature resolver.
+# This fixes issues where features from dev-dependencies bleed into regular dependencies.
+resolver = "2"

@@ -113,6 +113,15 @@ pub struct Trade {
     pub exit_reason: Option<ExitReason>,
     pub hold_duration_hours: Option<f64>,
     pub token_id: Option<String>,          // YES/NO token ID for CLOB pricing
+    // Paper Trading Plus — simulation tracking
+    pub raw_entry_price: Option<Decimal>,
+    pub raw_exit_price: Option<Decimal>,
+    pub entry_gas_fee: Decimal,
+    pub exit_gas_fee: Decimal,
+    pub entry_slippage: Decimal,
+    pub exit_slippage: Decimal,
+    pub platform_fee: Decimal,
+    pub maker_taker_fee: Decimal,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]

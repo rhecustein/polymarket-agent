@@ -3,6 +3,7 @@ use crate::data::polymarket::GammaScanner;
 use crate::team::types::{MarketCandidate, ScoutReport};
 use crate::types::Market;
 use anyhow::Result;
+use chrono::Utc;
 use rust_decimal::prelude::*;
 use tracing::info;
 
@@ -112,19 +113,23 @@ fn score_candidate(m: &Market) -> (f64, String) {
         reasons.push("med_liq");
     }
 
-    // ── Time Pressure (closer = more actionable) ──
+    // ── Time Pressure (closer = more actionable, strongly prefer short-term) ──
     if !m.end_date.is_empty() {
         if let Some(days) = parse_days_remaining(&m.end_date) {
             if days <= 3 {
-                score += 20.0;
+                score += 30.0; // Strong preference for urgent markets
                 reasons.push("urgent_<3d");
             } else if days <= 7 {
-                score += 15.0;
+                score += 22.0; // Short-term (<7d) — best for SCALP
                 reasons.push("soon_<7d");
+            } else if days <= 14 {
+                score += 12.0;
+                reasons.push("near_<14d");
             } else if days <= 30 {
-                score += 10.0;
+                score += 6.0;
                 reasons.push("month_<30d");
             }
+            // Long-term (>30d) gets no bonus — capital locked too long
         }
     }
 
@@ -177,6 +182,21 @@ fn score_candidate(m: &Market) -> (f64, String) {
     if c.contains("politics") || q.contains("election") || q.contains("president") {
         score += 8.0;
         reasons.push("politics");
+    }
+
+    // ── Timing: US Market Hours bonus (14:00-22:00 UTC = 9AM-5PM EST) ──
+    let now = Utc::now();
+    let hour = now.format("%H").to_string().parse::<u32>().unwrap_or(12);
+    if hour >= 14 && hour < 22 {
+        score += 10.0;
+        reasons.push("us_hours");
+    }
+
+    // ── Weekend penalty: low liquidity = wider spreads, worse fills ──
+    let weekday = now.format("%u").to_string().parse::<u32>().unwrap_or(1); // 1=Mon, 7=Sun
+    if weekday >= 6 {
+        score -= 15.0;
+        reasons.push("weekend_penalty");
     }
 
     (score, reasons.join(", "))

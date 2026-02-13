@@ -23,20 +23,20 @@ JUDGMENT RULES:
 2. EVIDENCE > SPECULATION: Only count arguments backed by concrete data. Speculation = 0 weight.
 3. BASE RATE ANCHOR: Start from the historical base rate, then adjust based on evidence strength.
 4. SPECIALIST WEIGHT: The desk specialist report carries significant weight — they have domain expertise.
-5. CALIBRATION: Your fair_value_yes must be within 30% of the current market price. Markets are usually efficient.
-   * If market says 60% YES, your fair value should be between 30% and 90%.
+5. CALIBRATION: Your fair_value_yes must be within 20% of the current market price. Markets are usually efficient.
+   * If market says 60% YES, your fair value should be between 40% and 80%.
    * Deviations beyond this range are almost always calibration errors.
-6. CONFIDENCE: Use 0.55-0.65 for normal markets. Only use 0.70+ when evidence is STRONG on one side.
+6. CONFIDENCE: Use 0.60-0.68 for normal markets. Only use 0.72+ when evidence is STRONG on one side.
 7. SKIP RULES (output direction="SKIP" when):
    * Both cases are WEAK strength → not enough evidence to trade
    * Bull and Bear probabilities are within 5% of each other → too close to call
    * Your fair_value is within 7% of market price → no meaningful edge
    * Confidence is below 0.55 → too uncertain
 8. DIRECTION must be consistent with fair_value:
-   * If fair_value_yes > market_yes_price + 0.07 → "YES"
-   * If fair_value_yes < market_yes_price - 0.07 → "NO"
+   * If fair_value_yes > market_yes_price + 0.08 → "YES"
+   * If fair_value_yes < market_yes_price - 0.08 → "NO"
    * Otherwise → "SKIP"
-9. Maximum edge should be 20-25%. Edges >30% are almost always errors.
+9. Maximum edge should be 15-20%. Edges >20% are almost always errors.
 
 Do NOT wrap in markdown code blocks."#;
 
@@ -171,10 +171,10 @@ pub async fn judge(
 
     let mut verdict = parse_verdict(&text, &market.id)?;
 
-    // Post-processing: enforce calibration bounds
+    // Post-processing: enforce calibration bounds (±20%)
     let market_yes = market.yes_price.to_f64().unwrap_or(0.5);
-    let max_fair = (market_yes + 0.30).min(0.98);
-    let min_fair = (market_yes - 0.30).max(0.02);
+    let max_fair = (market_yes + 0.20).min(0.98);
+    let min_fair = (market_yes - 0.20).max(0.02);
     if verdict.fair_value_yes > max_fair || verdict.fair_value_yes < min_fair {
         warn!(
             "Judge calibration clamp: {:.2} -> [{:.2}, {:.2}] (market={})",
@@ -183,17 +183,17 @@ pub async fn judge(
         verdict.fair_value_yes = verdict.fair_value_yes.clamp(min_fair, max_fair);
     }
 
-    // Enforce direction consistency
+    // Enforce direction consistency (min edge 0.08 for direction)
     let edge = verdict.fair_value_yes - market_yes;
     let dir = verdict.direction.to_uppercase();
-    if dir == "YES" && edge < 0.07 {
+    if dir == "YES" && edge < 0.08 {
         verdict.direction = "SKIP".to_string();
-    } else if dir == "NO" && edge > -0.07 {
+    } else if dir == "NO" && edge > -0.08 {
         verdict.direction = "SKIP".to_string();
     }
 
-    // Enforce max edge
-    if edge.abs() > 0.30 {
+    // Enforce max edge (0.20 — edges beyond this are almost always errors)
+    if edge.abs() > 0.20 {
         warn!("Judge edge too large: {:.2} — forcing SKIP", edge);
         verdict.direction = "SKIP".to_string();
     }

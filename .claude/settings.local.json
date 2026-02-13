@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build:*)",
+      "WebFetch(domain:gamma-api.polymarket.com)",
+      "Bash(timeout 5:*)",
+      "Bash(RUSTFLAGS=\"-A warnings\" cargo build:*)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)",
+      "Bash(powershell -Command \"Stop-Process -Name dashboard -Force -ErrorAction SilentlyContinue; Stop-Process -Name polyagent -Force -ErrorAction SilentlyContinue; Stop-Process -Name polyproxy -Force -ErrorAction SilentlyContinue; Write-Output ''Done''\")",
+      "Bash(powershell -Command \"Stop-Process -Name polyproxy -Force -ErrorAction SilentlyContinue; Stop-Process -Name polyagent -Force -ErrorAction SilentlyContinue; Stop-Process -Name dashboard -Force -ErrorAction SilentlyContinue; Write-Output ''Done''\")",
+      "Bash(cargo run:*)",
+      "Bash(timeout 20 powershell:*)",
+      "Bash(curl:*)",
+      "Bash(set:*)",
+      "Bash(start:*)",
+      "Bash(timeout:*)",
+      "Bash(powershell -Command \"Start-Sleep -Seconds 3; \\(Invoke-WebRequest -Uri ''http://localhost:3000'' -UseBasicParsing\\).Content\")",
+      "Bash(powershell:*)",
+      "Bash(targetreleasedashboard.exe:*)",
+      "Bash(./target/release/dashboard.exe)",
+      "Bash(netstat:*)",
+      "Bash(grep:*)",
+      "Bash(findstr:*)",
+      "Bash(ping:*)",
+      "Bash(dir:*)",
+      "Bash(chmod:*)",
+      "Bash(RUSTFLAGS=\"-A warnings\" cargo check:*)",
+      "Bash(ls:*)",
+      "Bash(cargo check:*)",
+      "WebFetch(domain:localhost)",
+      "Bash(git add:*)"
+    ]
+  }
+}

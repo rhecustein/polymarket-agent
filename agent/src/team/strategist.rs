@@ -32,31 +32,31 @@ pub fn plan(
     // Set TP/SL/max_hold based on mode
     let (tp_pct, sl_pct, max_hold_hours, check_interval) = match mode {
         TradeMode::Scalp => {
-            // Tight exits, fast turnaround
+            // Fast exit: favorable reward:risk 1.5:1, tight time limit
             (
-                Decimal::new(8, 2),   // 8% TP
-                Decimal::new(10, 2),  // 10% SL
-                48u64,                // 48h max hold
-                60u64,                // Check every 60s
+                Decimal::new(12, 2),  // 12% TP
+                Decimal::new(8, 2),   // 8% SL
+                24u64,                // 24h max hold (fast rotation)
+                30u64,                // Check every 30s (rapid monitoring)
             )
         }
         TradeMode::Swing => {
-            // Dynamic exits, medium hold
+            // Medium hold, tighter SL for faster loss cutting
             let dynamic_tp = (edge * Decimal::new(8, 1)).max(Decimal::new(5, 2)); // 80% of edge or 5%
             (
                 dynamic_tp.min(Decimal::new(20, 2)), // Cap at 20%
-                Decimal::new(15, 2),                  // 15% SL
-                336u64,                               // 14 days max
-                180u64,                               // Check every 3 min
+                Decimal::new(10, 2),                  // 10% SL (was 15% — cut losers faster)
+                168u64,                               // 7 days max (was 14d — faster capital rotation)
+                90u64,                                // Check every 90s (was 180s — faster monitoring)
             )
         }
         TradeMode::Conviction => {
-            // Hold to resolution, no SL
+            // Hold to resolution, with faster monitoring
             (
                 Decimal::ZERO, // No TP — hold to resolution
                 Decimal::ZERO, // No SL — conviction hold
                 0u64,          // No max hold — hold to resolution
-                300u64,        // Check every 5 min
+                180u64,        // Check every 3 min (was 5 min)
             )
         }
     };

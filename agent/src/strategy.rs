@@ -16,21 +16,22 @@ pub struct KellyResult {
 pub enum LossAction {
     /// Normal trading
     Continue,
-    /// Skip this cycle (5 consecutive losses)
+    /// Skip this cycle (3 consecutive losses)
     SkipCycle,
-    /// Reduce position size by 50% for next 3 trades (8 consecutive losses)
+    /// Reduce position size by 50% for next 3 trades (4 consecutive losses)
     ReduceSize,
-    /// Pause all trading and send critical alert (10 consecutive losses)
+    /// Pause all trading and send critical alert (5 consecutive losses — hard stop)
     Pause,
 }
 
-/// Check consecutive losses and return appropriate action
+/// Check consecutive losses and return appropriate action.
+/// Tightened thresholds: skip at 3, reduce at 4, full pause at 5 losses.
 pub fn check_consecutive_losses(consecutive: u32) -> LossAction {
-    if consecutive >= 10 {
+    if consecutive >= 5 {
         LossAction::Pause
-    } else if consecutive >= 8 {
+    } else if consecutive >= 4 {
         LossAction::ReduceSize
-    } else if consecutive >= 5 {
+    } else if consecutive >= 3 {
         LossAction::SkipCycle
     } else {
         LossAction::Continue

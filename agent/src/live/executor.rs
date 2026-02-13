@@ -154,6 +154,10 @@ impl LiveEngine {
                 bull_probability: None, bear_probability: None,
                 judge_fair_value: None, judge_confidence: None, judge_model: None,
                 exit_reason: None, hold_duration_hours: None, token_id: None,
+                raw_entry_price: None, raw_exit_price: None,
+                entry_gas_fee: Decimal::ZERO, exit_gas_fee: Decimal::ZERO,
+                entry_slippage: Decimal::ZERO, exit_slippage: Decimal::ZERO,
+                platform_fee: Decimal::ZERO, maker_taker_fee: Decimal::ZERO,
             };
 
             self.trades.push(trade.clone());
@@ -187,6 +191,10 @@ impl LiveEngine {
             bull_probability: None, bear_probability: None,
             judge_fair_value: None, judge_confidence: None, judge_model: None,
             exit_reason: None, hold_duration_hours: None, token_id: None,
+            raw_entry_price: None, raw_exit_price: None,
+            entry_gas_fee: Decimal::ZERO, exit_gas_fee: Decimal::ZERO,
+            entry_slippage: Decimal::ZERO, exit_slippage: Decimal::ZERO,
+            platform_fee: Decimal::ZERO, maker_taker_fee: Decimal::ZERO,
         };
 
         self.trades.push(trade.clone());

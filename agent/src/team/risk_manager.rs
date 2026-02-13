@@ -14,6 +14,7 @@ pub fn check(
     portfolio: &Portfolio,
     config: &Config,
     effective_max_pct: Decimal,
+    market_yes_price: Decimal,
 ) -> RiskDecision {
     let mut adjustments = Vec::new();
 
@@ -77,9 +78,9 @@ pub fn check(
         adjustments.push(format!("Survival mode: max_pct reduced to {:.1}%", actual_max_pct * Decimal::from(100)));
     }
 
-    // Check 5: Edge sanity
+    // Check 5: Edge sanity (calculated from actual market price, not hardcoded 50%)
     let fair_value = Decimal::from_f64(verdict.fair_value_yes).unwrap_or(Decimal::new(50, 2));
-    let edge = (fair_value - Decimal::new(50, 2)).abs(); // Rough edge check
+    let edge = (fair_value - market_yes_price).abs();
     if edge > Decimal::new(35, 2) {
         return RiskDecision {
             approved: false,
@@ -89,20 +90,16 @@ pub fn check(
         };
     }
 
-    // Calculate Kelly bet size
-    // We need the market price to compute Kelly — use fair_value as proxy for direction
-    // The actual market price will be used in the orchestrator
+    // Calculate Kelly bet size using actual market price
+    let market_price_for_kelly = match direction {
+        Direction::Yes => market_yes_price,
+        Direction::No => Decimal::ONE - market_yes_price,
+        Direction::Skip => market_yes_price, // unreachable due to early return
+    };
     let kelly = kelly_bet(
         balance,
         fair_value,
-        // For Kelly, we need market price — approximate from verdict
-        Decimal::from_f64(
-            if direction == Direction::Yes {
-                verdict.fair_value_yes - (verdict.fair_value_yes - 0.5).abs() * 0.5 // rough market estimate
-            } else {
-                1.0 - verdict.fair_value_yes + (verdict.fair_value_yes - 0.5).abs() * 0.5
-            }
-        ).unwrap_or(Decimal::new(50, 2)),
+        market_price_for_kelly,
         direction,
         actual_max_pct,
         config.kelly_fraction,

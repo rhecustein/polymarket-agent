@@ -383,7 +383,9 @@ impl SupabaseClient {
     /// Called periodically by the background aggregator.
     pub async fn compute_and_store_insights(&self) -> Result<()> {
         // Fetch all trades from the last 7 days
-        let since = (chrono::Utc::now() - chrono::Duration::days(7)).to_rfc3339();
+        let since = (chrono::Utc::now() - chrono::Duration::days(7))
+            .to_rfc3339()
+            .replace("+", "%2B");
         let url = format!(
             "{}?created_at=gte.{}&order=created_at.desc",
             self.table_url("trades"),
@@ -395,9 +397,21 @@ impl SupabaseClient {
             req = req.header(key, val);
         }
 
-        let resp = req.send().await.context("Supabase fetch trades for aggregation")?;
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                info!("Aggregation skipped: Supabase unreachable ({})", e);
+                return Ok(());
+            }
+        };
         if !resp.status().is_success() {
-            anyhow::bail!("Failed to fetch trades for aggregation");
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            info!("Aggregation skipped: Supabase returned {} (tables may not exist yet)", status);
+            if !body.is_empty() {
+                info!("  Detail: {}", &body[..body.len().min(200)]);
+            }
+            return Ok(());
         }
 
         let trades: Vec<serde_json::Value> = resp.json().await?;

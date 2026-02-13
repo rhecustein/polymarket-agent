@@ -45,7 +45,15 @@ impl StateStore {
                 judge_model TEXT,
                 exit_reason TEXT,
                 hold_duration_hours REAL,
-                token_id TEXT
+                token_id TEXT,
+                raw_entry_price TEXT,
+                raw_exit_price TEXT,
+                entry_gas_fee TEXT DEFAULT '0',
+                exit_gas_fee TEXT DEFAULT '0',
+                entry_slippage TEXT DEFAULT '0',
+                exit_slippage TEXT DEFAULT '0',
+                platform_fee TEXT DEFAULT '0',
+                maker_taker_fee TEXT DEFAULT '0'
             );
 
             CREATE TABLE IF NOT EXISTS analyses (
@@ -126,13 +134,37 @@ impl StateStore {
 
             CREATE INDEX IF NOT EXISTS idx_price_log_market ON price_log(market_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_cycle_log_time ON cycle_log(timestamp);
+            
+            CREATE TABLE IF NOT EXISTS agent_status (
+                id TEXT PRIMARY KEY CHECK (id = 'current'),
+                phase TEXT NOT NULL,
+                details TEXT,
+                updated_at TEXT NOT NULL
+            );
             ",
         )
         .context("Create tables")?;
 
+        // Migrate simulation columns for existing DBs
+        migrate_simulation_columns(&conn);
+
         let json_log_path = db_path.replace(".db", "_trades.jsonl");
 
         Ok(Self { conn, json_log_path })
+    }
+
+    /// Update the agent's current status/phase
+    pub fn update_status(&self, phase: &str, details: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO agent_status (id, phase, details, updated_at)
+             VALUES ('current', ?1, ?2, ?3)",
+            rusqlite::params![
+                phase,
+                details,
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
     }
 
     /// Check if a market was recently analyzed (within `hours` hours)
@@ -174,9 +206,12 @@ impl StateStore {
              entry_price, fair_value, edge, bet_size, shares, status, exit_price, pnl, balance_after, order_id,
              trade_mode, take_profit, stop_loss, max_hold_until, category, specialist_desk,
              bull_probability, bear_probability, judge_fair_value, judge_confidence, judge_model,
-             exit_reason, hold_duration_hours, token_id)
+             exit_reason, hold_duration_hours, token_id,
+             raw_entry_price, raw_exit_price, entry_gas_fee, exit_gas_fee,
+             entry_slippage, exit_slippage, platform_fee, maker_taker_fee)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15,
-                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29)",
+                     ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29,
+                     ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37)",
             rusqlite::params![
                 trade.id,
                 trade.timestamp.to_rfc3339(),
@@ -207,6 +242,14 @@ impl StateStore {
                 trade.exit_reason.map(|r| format!("{}", r)),
                 trade.hold_duration_hours,
                 trade.token_id,
+                trade.raw_entry_price.map(|p| p.to_string()),
+                trade.raw_exit_price.map(|p| p.to_string()),
+                trade.entry_gas_fee.to_string(),
+                trade.exit_gas_fee.to_string(),
+                trade.entry_slippage.to_string(),
+                trade.exit_slippage.to_string(),
+                trade.platform_fee.to_string(),
+                trade.maker_taker_fee.to_string(),
             ],
         )?;
 
@@ -360,5 +403,30 @@ impl StateStore {
             ],
         )?;
         Ok(())
+    }
+}
+
+/// Migrate simulation columns for existing databases
+fn migrate_simulation_columns(conn: &Connection) {
+    let columns = [
+        ("raw_entry_price", "TEXT"),
+        ("raw_exit_price", "TEXT"),
+        ("entry_gas_fee", "TEXT DEFAULT '0'"),
+        ("exit_gas_fee", "TEXT DEFAULT '0'"),
+        ("entry_slippage", "TEXT DEFAULT '0'"),
+        ("exit_slippage", "TEXT DEFAULT '0'"),
+        ("platform_fee", "TEXT DEFAULT '0'"),
+        ("maker_taker_fee", "TEXT DEFAULT '0'"),
+    ];
+
+    for (col, typ) in &columns {
+        // Check if column exists by trying a query
+        let exists = conn
+            .prepare(&format!("SELECT {col} FROM trades LIMIT 0"))
+            .is_ok();
+        if !exists {
+            let sql = format!("ALTER TABLE trades ADD COLUMN {col} {typ}");
+            conn.execute_batch(&sql).ok();
+        }
     }
 }

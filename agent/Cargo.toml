@@ -13,7 +13,13 @@ categories = ["finance", "command-line-utilities"]
 name = "polyagent"
 path = "src/main.rs"
 
+[[bin]]
+name = "dashboard"
+path = "src/bin/dashboard.rs"
+
 [dependencies]
+axum = "0.7"
+tower-http = { version = "0.5", features = ["cors"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
 serde = { version = "1", features = ["derive"] }

@@ -1,5 +1,5 @@
 use crate::telegram::TelegramAlert;
-use crate::paper::Portfolio;
+use crate::paper::{Portfolio, SimConfig};
 use crate::db::StateStore;
 use crate::team::types::TradePlan;
 use crate::types::{Analysis, Direction, Trade};
@@ -16,6 +16,7 @@ pub async fn execute(
     portfolio: &Portfolio,
     store: &StateStore,
     telegram: &TelegramAlert,
+    sim: &SimConfig,
 ) -> Option<Trade> {
     if plan.direction == Direction::Skip {
         return None;
@@ -30,6 +31,8 @@ pub async fn execute(
         plan.fair_value_yes,
         plan.edge,
         plan.bet_size,
+        sim,
+        plan.market.volume,
     )?;
 
     // Enrich with paper trading agent trail
