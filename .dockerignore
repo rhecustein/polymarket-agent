@@ -1,0 +1,41 @@
+# Build artifacts
+target/
+**/target/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Data and configs
+data/
+configs/
+*.db
+*.db-*
+
+# Git
+.git/
+.gitignore
+.github/
+
+# Documentation
+*.md
+LICENSE
+articles/
+
+# Node modules (if any)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Docker
+docker-compose.override.yml
+Dockerfile.old

@@ -1,0 +1,41 @@
+# ══════════════════════════════════════════════
+# Production Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+# ══════════════════════════════════════════════
+
+version: '3.8'
+
+services:
+  proxy:
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+
+  dashboard:
+    restart: always
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "5"
+        compress: "true"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
