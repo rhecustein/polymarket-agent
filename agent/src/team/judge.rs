@@ -44,8 +44,8 @@ Do NOT wrap in markdown code blocks."#;
 /// Uses Claude Sonnet for top candidates (use_sonnet=true), Gemini for rest
 pub async fn judge(
     gemini: &GeminiClient,
-    claude: &ClaudeClient,
-    use_sonnet: bool,
+    _claude: &ClaudeClient,
+    _use_sonnet: bool,
     candidate: &MarketCandidate,
     bull: &BullCase,
     bear: &BearCase,
@@ -153,18 +153,11 @@ pub async fn judge(
         data = data_text,
     );
 
-    // Route to Sonnet (top 3) or Gemini (rest)
-    let (text, cost, model_label) = if use_sonnet && claude.is_configured() {
-        let (t, c) = claude.call(DEVILS_SYSTEM, &user_msg, 500).await?;
-        (t, c, "sonnet")
-    } else {
-        let (t, c) = gemini.call(DEVILS_SYSTEM, &user_msg, 500).await?;
-        (t, c, "gemini")
-    };
+    // Force Gemini-only (Sonnet disabled for cost optimization)
+    let (text, cost) = gemini.call(DEVILS_SYSTEM, &user_msg, 500).await?;
 
     info!(
-        "Judge[{}]: {} (${:.4})",
-        model_label,
+        "Judge[Gemini]: {} (${:.4})",
         &market.question[..market.question.len().min(40)],
         cost
     );

@@ -312,25 +312,19 @@ async fn analyze_candidate(
     };
 
     // ── Judge ──
-    // Top 3 candidates (by index) get Sonnet, rest get Gemini
-    let use_sonnet = index < 3;
+    // Force Gemini-only (cost optimization)
     let verdict = match judge::judge(
-        gemini, claude, use_sonnet, candidate, &bull, &bear, &data_pack, &dossier, &desk_report,
+        gemini, claude, false, candidate, &bull, &bear, &data_pack, &dossier, &desk_report,
     )
     .await
     {
         Ok(v) => {
-            // Estimate cost: Sonnet ~$0.015/1M in + $0.075/1M out, Gemini ~$0.10/1M in + $0.40/1M out
-            let judge_cost = if use_sonnet {
-                Decimal::from_str("0.0005").unwrap() // Sonnet: ~500 tokens more expensive
-            } else {
-                Decimal::from_str("0.0002").unwrap() // Gemini
-            };
+            // Estimate cost: Gemini ~$0.10/1M in + $0.40/1M out
+            let judge_cost = Decimal::from_str("0.0002").unwrap(); // Gemini
             result.api_cost += judge_cost;
 
             info!(
-                "  Judge{}: fair={:.2} conf={:.2} -> {}",
-                if use_sonnet { "[Sonnet]" } else { "[Gemini]" },
+                "  Judge[Gemini]: fair={:.2} conf={:.2} -> {}",
                 v.fair_value_yes,
                 v.confidence,
                 v.direction
@@ -365,7 +359,7 @@ async fn analyze_candidate(
     plan.specialist_desk = Some(format!("{}", desk_type));
     plan.bull_probability = Some(bull.probability_yes);
     plan.bear_probability = Some(bear.probability_no);
-    plan.judge_model = Some(if use_sonnet { "sonnet".to_string() } else { "gemini".to_string() });
+    plan.judge_model = Some("gemini".to_string());
 
     // Edge vs SL filter
     if plan.stop_loss_pct > Decimal::ZERO && plan.edge < plan.stop_loss_pct {

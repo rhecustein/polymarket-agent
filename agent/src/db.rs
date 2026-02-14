@@ -1,11 +1,14 @@
 use crate::paper::PortfolioStats;
 use crate::types::{Analysis, Trade};
 use anyhow::{Context, Result};
+use chrono::{Datelike, Timelike};
 use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use rusqlite::Connection;
+use std::str::FromStr;
 
 pub struct StateStore {
-    conn: Connection,
+    pub(crate) conn: Connection,
     json_log_path: String,
 }
 
@@ -134,13 +137,92 @@ impl StateStore {
 
             CREATE INDEX IF NOT EXISTS idx_price_log_market ON price_log(market_id, timestamp);
             CREATE INDEX IF NOT EXISTS idx_cycle_log_time ON cycle_log(timestamp);
-            
+
             CREATE TABLE IF NOT EXISTS agent_status (
                 id TEXT PRIMARY KEY CHECK (id = 'current'),
                 phase TEXT NOT NULL,
                 details TEXT,
                 updated_at TEXT NOT NULL
             );
+
+            -- ═══ KNOWLEDGE COLLECTION TABLES ═══
+            -- Track win rate per category for strategy optimization
+            CREATE TABLE IF NOT EXISTS knowledge_category_stats (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT NOT NULL,
+                trade_mode TEXT,
+                total_trades INTEGER DEFAULT 0,
+                wins INTEGER DEFAULT 0,
+                losses INTEGER DEFAULT 0,
+                win_rate REAL DEFAULT 0.0,
+                avg_edge REAL DEFAULT 0.0,
+                avg_confidence REAL DEFAULT 0.0,
+                avg_hold_hours REAL DEFAULT 0.0,
+                total_pnl TEXT DEFAULT '0',
+                last_updated TEXT NOT NULL
+            );
+
+            -- Track fee & slippage impact for position sizing optimization
+            CREATE TABLE IF NOT EXISTS knowledge_cost_impact (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                trade_id TEXT NOT NULL,
+                bet_size TEXT NOT NULL,
+                total_fees TEXT NOT NULL,
+                total_slippage TEXT NOT NULL,
+                fee_pct_of_size REAL DEFAULT 0.0,
+                slippage_pct_of_size REAL DEFAULT 0.0,
+                pnl_before_costs TEXT DEFAULT '0',
+                pnl_after_costs TEXT DEFAULT '0',
+                cost_impact_pct REAL DEFAULT 0.0,
+                category TEXT,
+                FOREIGN KEY (trade_id) REFERENCES trades(id)
+            );
+
+            -- Track entry timing & confidence correlation
+            CREATE TABLE IF NOT EXISTS knowledge_timing_analysis (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                trade_id TEXT NOT NULL,
+                entry_timestamp TEXT NOT NULL,
+                entry_hour INTEGER,
+                entry_day_of_week INTEGER,
+                judge_confidence REAL,
+                judge_fair_value REAL,
+                market_entry_price REAL,
+                edge_at_entry REAL,
+                hold_duration_hours REAL,
+                exit_reason TEXT,
+                result TEXT,
+                pnl_pct REAL,
+                category TEXT,
+                FOREIGN KEY (trade_id) REFERENCES trades(id)
+            );
+
+            -- Track strategy parameters for genetic algorithm optimization
+            CREATE TABLE IF NOT EXISTS knowledge_strategy_params (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                generation INTEGER NOT NULL,
+                agent_id TEXT,
+                min_confidence REAL,
+                min_edge REAL,
+                max_position_pct REAL,
+                kelly_fraction REAL,
+                exit_tp_pct REAL,
+                exit_sl_pct REAL,
+                category_filter TEXT,
+                total_trades INTEGER DEFAULT 0,
+                win_rate REAL DEFAULT 0.0,
+                total_pnl TEXT DEFAULT '0',
+                sharpe_ratio REAL DEFAULT 0.0,
+                max_drawdown REAL DEFAULT 0.0,
+                started_at TEXT NOT NULL,
+                ended_at TEXT
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_knowledge_category ON knowledge_category_stats(category, trade_mode);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_cost ON knowledge_cost_impact(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_timing ON knowledge_timing_analysis(entry_timestamp);
+            CREATE INDEX IF NOT EXISTS idx_knowledge_params ON knowledge_strategy_params(generation, win_rate);
             ",
         )
         .context("Create tables")?;
@@ -400,6 +482,201 @@ impl StateStore {
                 stats.win_count + stats.loss_count,
                 format!("{:.1}", stats.win_rate),
                 stats.max_drawdown_pct.to_string(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    // ═══════════════════════════════════════════
+    // KNOWLEDGE COLLECTION METHODS
+    // ═══════════════════════════════════════════
+
+    /// Record cost impact for a trade (fees + slippage)
+    pub fn record_cost_impact(
+        &self,
+        trade_id: &str,
+        bet_size: Decimal,
+        total_fees: Decimal,
+        total_slippage: Decimal,
+        pnl_before: Decimal,
+        pnl_after: Decimal,
+        category: Option<&str>,
+    ) -> Result<()> {
+        let fee_pct = if bet_size > Decimal::ZERO {
+            (total_fees / bet_size * Decimal::from(100)).to_f64().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let slippage_pct = if bet_size > Decimal::ZERO {
+            (total_slippage / bet_size * Decimal::from(100)).to_f64().unwrap_or(0.0)
+        } else {
+            0.0
+        };
+        let cost_impact = if pnl_before != Decimal::ZERO {
+            ((pnl_before - pnl_after) / pnl_before.abs() * Decimal::from(100))
+                .to_f64()
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        self.conn.execute(
+            "INSERT INTO knowledge_cost_impact
+             (timestamp, trade_id, bet_size, total_fees, total_slippage,
+              fee_pct_of_size, slippage_pct_of_size, pnl_before_costs, pnl_after_costs, cost_impact_pct, category)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                chrono::Utc::now().to_rfc3339(),
+                trade_id,
+                bet_size.to_string(),
+                total_fees.to_string(),
+                total_slippage.to_string(),
+                fee_pct,
+                slippage_pct,
+                pnl_before.to_string(),
+                pnl_after.to_string(),
+                cost_impact,
+                category,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Record timing analysis for a trade
+    pub fn record_timing_analysis(&self, trade: &Trade) -> Result<()> {
+        let result = if trade.pnl > Decimal::ZERO {
+            "win"
+        } else if trade.pnl < Decimal::ZERO {
+            "loss"
+        } else {
+            "breakeven"
+        };
+
+        let pnl_pct = if trade.bet_size > Decimal::ZERO {
+            (trade.pnl / trade.bet_size * Decimal::from(100))
+                .to_f64()
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        let exit_reason_str = trade.exit_reason.as_ref().map(|r| format!("{:?}", r));
+
+        self.conn.execute(
+            "INSERT INTO knowledge_timing_analysis
+             (trade_id, entry_timestamp, entry_hour, entry_day_of_week,
+              judge_confidence, judge_fair_value, market_entry_price, edge_at_entry,
+              hold_duration_hours, exit_reason, result, pnl_pct, category)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            rusqlite::params![
+                &trade.id,
+                trade.timestamp.to_rfc3339(),
+                trade.timestamp.hour() as i64,
+                trade.timestamp.weekday().number_from_monday() as i64,
+                trade.judge_confidence,
+                trade.judge_fair_value,
+                trade.entry_price.to_f64().unwrap_or(0.0),
+                trade.edge.to_f64().unwrap_or(0.0),
+                trade.hold_duration_hours,
+                exit_reason_str,
+                result,
+                pnl_pct,
+                trade.category.as_deref(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Update category stats after a trade closes
+    pub fn update_category_stats(&self, category: &str, trade_mode: Option<&str>, trade: &Trade) -> Result<()> {
+        let result = if trade.pnl > Decimal::ZERO { "win" } else { "loss" };
+
+        // Get current stats or create new
+        let mut stmt = self.conn.prepare(
+            "SELECT total_trades, wins, losses, total_pnl FROM knowledge_category_stats
+             WHERE category = ?1 AND trade_mode IS ?2"
+        )?;
+
+        let existing: Option<(i64, i64, i64, String)> = stmt
+            .query_row(rusqlite::params![category, trade_mode], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .ok();
+
+        let (total, wins, losses, total_pnl_str) = existing.unwrap_or((0, 0, 0, "0".to_string()));
+        let total_pnl = Decimal::from_str(&total_pnl_str).unwrap_or(Decimal::ZERO);
+
+        let new_total = total + 1;
+        let new_wins = if result == "win" { wins + 1 } else { wins };
+        let new_losses = if result == "loss" { losses + 1 } else { losses };
+        let new_total_pnl = total_pnl + trade.pnl;
+        let new_win_rate = if new_total > 0 {
+            new_wins as f64 / new_total as f64
+        } else {
+            0.0
+        };
+
+        // Calculate averages from recent trades
+        let mut avg_stmt = self.conn.prepare(
+            "SELECT AVG(edge), AVG(judge_confidence), AVG(hold_duration_hours)
+             FROM trades WHERE category = ?1 AND status = 'closed'"
+        )?;
+        let (avg_edge, avg_conf, avg_hold): (Option<f64>, Option<f64>, Option<f64>) =
+            avg_stmt.query_row(rusqlite::params![category], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            }).unwrap_or((None, None, None));
+
+        self.conn.execute(
+            "INSERT OR REPLACE INTO knowledge_category_stats
+             (category, trade_mode, total_trades, wins, losses, win_rate,
+              avg_edge, avg_confidence, avg_hold_hours, total_pnl, last_updated)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            rusqlite::params![
+                category,
+                trade_mode,
+                new_total,
+                new_wins,
+                new_losses,
+                new_win_rate,
+                avg_edge.unwrap_or(0.0),
+                avg_conf.unwrap_or(0.0),
+                avg_hold.unwrap_or(0.0),
+                new_total_pnl.to_string(),
+                chrono::Utc::now().to_rfc3339(),
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Record current strategy parameters
+    pub fn record_strategy_params(
+        &self,
+        generation: u32,
+        agent_id: Option<&str>,
+        min_confidence: Decimal,
+        min_edge: Decimal,
+        max_position_pct: Decimal,
+        kelly_fraction: Decimal,
+        exit_tp_pct: Decimal,
+        exit_sl_pct: Decimal,
+        category_filter: &str,
+    ) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO knowledge_strategy_params
+             (generation, agent_id, min_confidence, min_edge, max_position_pct,
+              kelly_fraction, exit_tp_pct, exit_sl_pct, category_filter, started_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            rusqlite::params![
+                generation,
+                agent_id,
+                min_confidence.to_f64().unwrap_or(0.0),
+                min_edge.to_f64().unwrap_or(0.0),
+                max_position_pct.to_f64().unwrap_or(0.0),
+                kelly_fraction.to_f64().unwrap_or(0.0),
+                exit_tp_pct.to_f64().unwrap_or(0.0),
+                exit_sl_pct.to_f64().unwrap_or(0.0),
+                category_filter,
+                chrono::Utc::now().to_rfc3339(),
             ],
         )?;
         Ok(())

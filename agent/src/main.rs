@@ -18,6 +18,7 @@ use crate::data::Enricher;
 use crate::data::polymarket::GammaScanner;
 use crate::db::StateStore;
 use crate::email::EmailAlert;
+use crate::knowledge::collector::KnowledgeCollector;
 use crate::live::ClobClient;
 use crate::paper::{Portfolio, SimConfig};
 use crate::strategy::{check_consecutive_losses, survival_adjust, LossAction};
@@ -55,6 +56,10 @@ struct Cli {
     /// Skip interactive configuration and use defaults/env
     #[arg(long, short = 'y')]
     yes: bool,
+
+    /// Generate knowledge report from collected data and exit
+    #[arg(long)]
+    knowledge_report: bool,
 }
 
 #[tokio::main]
@@ -76,6 +81,12 @@ async fn main() -> Result<()> {
     let knowledge_only = cli.knowledge_only || cfg.knowledge_only;
     let interval = cli.interval.unwrap_or(cfg.scan_interval_secs);
 
+    // ═══ Knowledge Report Mode ═══
+    if cli.knowledge_report {
+        generate_knowledge_report(&cfg)?;
+        return Ok(());
+    }
+
     // Interactive Setup (unless --yes passed or skipped via env)
     // We check raw args because we haven't added --yes to Clap yet, or we can just add it to Clap.
     // Let's add it to Clap struct below in next edit, for now just call the function.
@@ -96,7 +107,7 @@ async fn main() -> Result<()> {
     info!("  POLYMARKET AGENT v2.0 — BATTLE TEST [{}]", agent_label);
     info!("  Mode: {}", if knowledge_only { "KNOWLEDGE ONLY (no trades)" }
         else if cfg.paper_trading { "PAPER TRADING (real data, virtual money)" } else { "LIVE TRADING" });
-    info!("  AI: Gemini Flash 2.0 + Claude Sonnet (Judge top 3)");
+    info!("  AI: Gemini Flash 2.0 ONLY (Sonnet disabled for cost optimization)");
     info!("  Balance: ${} | Kill: ${}", cfg.initial_balance, cfg.kill_threshold);
     info!("  Max Position: {}% | Kelly: 1/{:.0}", cfg.max_position_pct * Decimal::from(100), Decimal::ONE / cfg.kelly_fraction);
     info!("  Min Edge: {}% | Min Confidence: {}", cfg.min_edge_threshold * Decimal::from(100), cfg.min_confidence);
@@ -122,16 +133,29 @@ async fn main() -> Result<()> {
     let claude = ClaudeClient::new(&cfg.claude_api_key);
     let enricher = Enricher::new();
 
+    // Claude/Sonnet disabled for cost optimization (Gemini-only mode)
     if claude.is_configured() {
-        info!("Claude Sonnet configured (Judge top 3 candidates)");
-    } else {
-        warn!("Claude API key not set — Judge will use Gemini for all candidates");
+        info!("Claude API key detected but DISABLED (Gemini-only mode for cost optimization)");
     }
     let portfolio = Portfolio::new(cfg.initial_balance);
     let sim = SimConfig::from_config(&cfg);
     info!("Simulation: fees={} slippage={} fills={} impact={}",
         sim.fees_enabled, sim.slippage_enabled, sim.fills_enabled, sim.impact_enabled);
     let store = StateStore::new(&cfg.db_path)?;
+
+    // Record strategy parameters for knowledge collection
+    store.record_strategy_params(
+        cfg.generation,
+        cli.agent_id.as_deref(),
+        cfg.min_confidence,
+        cfg.min_edge_threshold,
+        cfg.max_position_pct,
+        cfg.kelly_fraction,
+        cfg.exit_tp_pct,
+        cfg.exit_sl_pct,
+        &cfg.category_filter,
+    ).ok();
+
     let emailer = EmailAlert::new(
         &cfg.smtp_host, cfg.smtp_port, &cfg.smtp_user, &cfg.smtp_pass,
         &cfg.alert_from, &cfg.alert_to,
@@ -524,9 +548,18 @@ async fn resolve_open_trades(
         Err(e) => { error!("Pre-resolve scan failed: {e}"); return; }
     };
     let resolved = portfolio.resolve_with_prices(&markets, cfg.exit_tp_pct, cfg.exit_sl_pct, sim);
+
+    // Collect knowledge from closed trades
+    let knowledge = KnowledgeCollector::new(store);
+
     for trade in &resolved {
         store.save_trade(trade).ok();
         telegram.send_trade_closed_alert(trade).await.ok();
+
+        // Collect knowledge for future improvements
+        if let Err(e) = knowledge.collect_on_trade_close(trade) {
+            warn!("Failed to collect knowledge for trade {}: {}", trade.id, e);
+        }
     }
     if !resolved.is_empty() {
         info!("{} trade(s) resolved this cycle", resolved.len());
@@ -551,8 +584,12 @@ async fn graceful_shutdown(
     let markets = gamma.scan(200).await.unwrap_or_default();
     let closed = portfolio.close_all_positions(&markets, sim);
     info!("Step 1: Closed {} open positions", closed.len());
+
+    let knowledge = KnowledgeCollector::new(store);
     for trade in &closed {
         store.save_trade(trade).ok();
+        // Collect knowledge from shutdown trades
+        knowledge.collect_on_trade_close(trade).ok();
     }
 
     // Step 2: Calculate final stats
@@ -667,6 +704,83 @@ fn interactive_configuration(cfg: &mut Config) -> Result<()> {
         std::process::exit(0);
     }
     println!("\nStarting engine...");
+    Ok(())
+}
+
+/// Generate and display knowledge report from collected data
+fn generate_knowledge_report(cfg: &Config) -> Result<()> {
+    println!("\n═══════════════════════════════════════════════════════");
+    println!("  KNOWLEDGE REPORT — Paper Trading Insights");
+    println!("═══════════════════════════════════════════════════════\n");
+
+    let store = StateStore::new(&cfg.db_path)?;
+    let collector = KnowledgeCollector::new(&store);
+
+    match collector.get_summary() {
+        Ok(summary) => {
+            println!("{}", summary.to_report());
+
+            // Actionable recommendations
+            println!("\n🎯 ACTIONABLE RECOMMENDATIONS:\n");
+
+            if let Some(best) = summary.best_category() {
+                println!(
+                    "✅ FOCUS ON: {} markets ({:.1}% win rate, {} trades)",
+                    best.category,
+                    best.win_rate * 100.0,
+                    best.total_trades
+                );
+            }
+
+            let poor = summary.poor_categories();
+            if !poor.is_empty() {
+                println!("\n⚠️  AVOID THESE CATEGORIES:");
+                for cat in poor {
+                    println!(
+                        "   • {} ({:.1}% win rate, {} trades)",
+                        cat.category,
+                        cat.win_rate * 100.0,
+                        cat.total_trades
+                    );
+                }
+            }
+
+            if summary.avg_cost_impact_pct > 5.0 {
+                println!(
+                    "\n💸 COST OPTIMIZATION: Fees+slippage eating {:.1}% of profits — consider reducing position sizes",
+                    summary.avg_cost_impact_pct
+                );
+            }
+
+            if !summary.best_timing_patterns.is_empty() {
+                println!("\n⏰ OPTIMAL TRADING HOURS (UTC):");
+                for (i, pattern) in summary.best_timing_patterns.iter().take(3).enumerate() {
+                    println!(
+                        "   {}. {:02}:00-{:02}:59 ({:.1}% win rate)",
+                        i + 1,
+                        pattern.entry_hour,
+                        pattern.entry_hour,
+                        pattern.win_rate
+                    );
+                }
+            }
+
+            // Export recommendations
+            println!("\n📊 DATA EXPORT:\n");
+            println!("  Database: {}", cfg.db_path);
+            println!("  Query examples:");
+            println!("    sqlite3 {} \"SELECT category, win_rate, total_trades FROM knowledge_category_stats ORDER BY win_rate DESC\"", cfg.db_path);
+            println!("    sqlite3 {} \"SELECT entry_hour, win_rate FROM knowledge_timing_analysis GROUP BY entry_hour\"", cfg.db_path);
+        }
+        Err(e) => {
+            println!("❌ Failed to generate report: {}", e);
+            println!("\nPossible reasons:");
+            println!("  • No trades completed yet (database empty)");
+            println!("  • Database file not found: {}", cfg.db_path);
+        }
+    }
+
+    println!("\n═══════════════════════════════════════════════════════\n");
     Ok(())
 }
 

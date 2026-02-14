@@ -1,5 +1,6 @@
 pub mod contributor;
 pub mod consumer;
+pub mod collector;
 
 /// Proxy URL for knowledge sharing (public endpoint)
 pub const PROXY_BASE_URL: &str = "https://polymarket-agent-proxy.fly.dev";
