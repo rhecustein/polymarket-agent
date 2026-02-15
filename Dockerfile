@@ -4,6 +4,7 @@
 # ══════════════════════════════════════════════
 
 # ── Stage 1: Builder ──
+# Must use nightly for edition2024 features required by dependencies
 FROM rustlang/rust:nightly-bookworm AS builder
 
 WORKDIR /build
@@ -28,8 +29,9 @@ RUN mkdir -p agent/src/bin && \
 COPY agent/src ./agent/src
 
 # Clean cache and build for real
-# Reduce parallel jobs to avoid OOM on resource-constrained servers
-RUN rm -rf target/release/deps/polymarket* target/release/deps/dashboard* && \
+# Update cargo index and clean old deps to avoid cache issues
+RUN cargo update --manifest-path agent/Cargo.toml && \
+    rm -rf target/release/deps/polymarket* target/release/deps/dashboard* && \
     cargo build --release --manifest-path agent/Cargo.toml -j 2
 
 # ── Stage 2: Runtime ──
