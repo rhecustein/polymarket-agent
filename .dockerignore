@@ -1,0 +1,44 @@
+# Build artifacts
+target/
+agent/target/
+
+# Git
+.git/
+.github/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Secrets
+.env
+*.pem
+*.key
+
+# Data
+data/
+agent/data/
+agent/configs/
+configs/
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Scripts
+*.sh
+*.ps1
+
+# Misc
+.claude/
+knowledge/
