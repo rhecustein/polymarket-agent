@@ -1,0 +1,40 @@
+services:
+  # ══════════════════════════════════════════════
+  # Polymarket Dashboard - Gemini Only Mode
+  # Multi-agent management interface
+  # ══════════════════════════════════════════════
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: polymarket-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+      - GEMINI_ONLY=true
+    volumes:
+      # Persistent agent databases
+      - agent-data:/app/data
+      # Agent configurations
+      - agent-configs:/app/configs
+    networks:
+      - polymarket-net
+
+# ══════════════════════════════════════════════
+# Volumes - Persistent Storage
+# ══════════════════════════════════════════════
+volumes:
+  agent-data:
+    name: polymarket-agent-data
+  agent-configs:
+    name: polymarket-agent-configs
+
+# ══════════════════════════════════════════════
+# Networks
+# ══════════════════════════════════════════════
+networks:
+  polymarket-net:
+    name: polymarket-network
+    driver: bridge
