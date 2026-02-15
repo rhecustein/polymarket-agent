@@ -14,11 +14,16 @@ services:
     environment:
       - RUST_LOG=${RUST_LOG:-info}
       - GEMINI_ONLY=true
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - POLYMARKET_PROXY_KEY=${POLYMARKET_PROXY_KEY:-}
+      - POLYMARKET_API_KEY=${POLYMARKET_API_KEY:-}
+      - POLYMARKET_SECRET=${POLYMARKET_SECRET:-}
+      - POLYMARKET_PASSPHRASE=${POLYMARKET_PASSPHRASE:-}
     volumes:
       # Persistent agent databases
       - agent-data:/app/data
-      # Agent configurations
-      - agent-configs:/app/configs
+      # Agent configurations (bind mount for production)
+      - ./configs:/app/configs
     networks:
       - polymarket-net
 
@@ -28,8 +33,6 @@ services:
 volumes:
   agent-data:
     name: polymarket-agent-data
-  agent-configs:
-    name: polymarket-agent-configs
 
 # ══════════════════════════════════════════════
 # Networks
