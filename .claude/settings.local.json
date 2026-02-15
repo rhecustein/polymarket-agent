@@ -36,7 +36,17 @@
       "Bash(git fetch:*)",
       "Bash(docker:*)",
       "Bash(docker compose:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(docker-compose down:*)",
+      "Bash(docker-compose build:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(source:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(docker-compose stop:*)",
+      "Bash(docker-compose rm:*)",
+      "Bash(docker-compose restart:*)",
+      "Bash(./test-smtp.sh:*)"
     ]
   }
 }

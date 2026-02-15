@@ -1,7 +1,9 @@
 [workspace]
 members = [
-    "agent",
-    "proxy"
+    "agent"
+]
+exclude = [
+    "email-test"
 ]
 
 # Use the new feature resolver.
