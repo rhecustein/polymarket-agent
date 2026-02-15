@@ -4,13 +4,15 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use tracing::debug;
 
-/// Claude Sonnet API client for high-stakes decisions (Judge top 3)
+/// Claude Sonnet API client for final judge validation
 /// Cost: $3/1M input + $15/1M output tokens
+/// Role: Reject trades with <60% win chance or gambling behavior
 pub struct ClaudeClient {
     api_key: String,
     client: reqwest::Client,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 struct ClaudeRequest {
     model: String,
@@ -19,18 +21,21 @@ struct ClaudeRequest {
     messages: Vec<Message>,
 }
 
+#[allow(dead_code)]
 #[derive(Serialize)]
 struct Message {
     role: String,
     content: String,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct ClaudeResponse {
     content: Vec<ContentBlock>,
     usage: Option<Usage>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct ContentBlock {
     #[serde(rename = "type")]
@@ -38,6 +43,7 @@ struct ContentBlock {
     text: Option<String>,
 }
 
+#[allow(dead_code)]
 #[derive(Deserialize)]
 struct Usage {
     input_tokens: u32,

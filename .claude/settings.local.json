@@ -46,7 +46,16 @@
       "Bash(docker-compose stop:*)",
       "Bash(docker-compose rm:*)",
       "Bash(docker-compose restart:*)",
-      "Bash(./test-smtp.sh:*)"
+      "Bash(./test-smtp.sh:*)",
+      "Bash(docker-compose:*)",
+      "Bash(cd:*)",
+      "Bash(git restore:*)",
+      "Bash(python get_chat_id.py:*)",
+      "Bash(if [ -f .env ])",
+      "Bash(then echo \"=== .env exists ===\")",
+      "Bash(else echo \".env not found\")",
+      "Bash(fi)",
+      "Bash(python -c \"\nimport smtplib\nfrom email.mime.text import MIMEText\nfrom email.mime.multipart import MIMEMultipart\n\n# SMTP config\nsmtp_host = ''smtp.hostinger.com''\nsmtp_port = 587\nsmtp_user = ''info@autobot.co.id''\nsmtp_pass = ''*Ganteng12''\n\n# Email content\nmsg = MIMEMultipart\\(''alternative''\\)\nmsg[''From''] = smtp_user\nmsg[''To''] = smtp_user  # Send to self for testing\nmsg[''Subject''] = ''TEST - Polymarket Agent Notification System''\n\nhtml = ''''''<!DOCTYPE html>\n<html>\n<body style=\"\"margin:0;padding:20px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,''Segoe UI'',Roboto,sans-serif\"\">\n<div style=\"\"max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;box-shadow:0 4px 6px rgba\\(0,0,0,0.1\\)\"\">\n  <div style=\"\"background:linear-gradient\\(135deg,#10b981 0%,#10b981dd 100%\\);padding:32px;border-radius:16px 16px 0 0\"\">\n    <h1 style=\"\"margin:0;color:#ffffff;font-size:28px;font-weight:700\"\">TEST EMAIL NOTIFICATION</h1>\n    <p style=\"\"margin:8px 0 0 0;color:#ffffff;opacity:0.95;font-size:16px\"\">Polymarket Agent System</p>\n  </div>\n  <div style=\"\"padding:32px\"\">\n    <h2 style=\"\"margin:0 0 16px 0;color:#111827;font-size:20px\"\">Email Successfully Configured!</h2>\n    <p style=\"\"color:#6b7280;line-height:1.6;margin:0 0 24px 0\"\">\n      Your email notification system is ready to send:\n    </p>\n    <ul style=\"\"color:#374151;line-height:1.8;margin:0 0 24px 0\"\">\n      <li>Trade closed notifications</li>\n      <li>Daily performance summaries</li>\n      <li>Critical alerts</li>\n    </ul>\n    <div style=\"\"background:#f9fafb;border-left:4px solid #10b981;padding:16px;border-radius:8px\"\">\n      <p style=\"\"margin:0;color:#374151;font-size:14px\"\">\n        <strong>Status:</strong> All systems operational\n      </p>\n    </div>\n  </div>\n  <div style=\"\"padding:24px 32px;background:#f9fafb;border-radius:0 0 16px 16px;border-top:1px solid #e5e7eb\"\">\n    <p style=\"\"margin:0;color:#9ca3af;font-size:12px;text-align:center\"\">\n      Polymarket Trading Agent - Automated Notifications\n    </p>\n  </div>\n</div>\n</body>\n</html>''''''\n\nmsg.attach\\(MIMEText\\(html, ''html''\\)\\)\n\n# Send\nserver = smtplib.SMTP\\(smtp_host, smtp_port\\)\nserver.starttls\\(\\)\nserver.login\\(smtp_user, smtp_pass\\)\nserver.send_message\\(msg\\)\nserver.quit\\(\\)\n\nprint\\(''[SUCCESS] Test email sent to:'', smtp_user\\)\n\")"
     ]
   }
 }

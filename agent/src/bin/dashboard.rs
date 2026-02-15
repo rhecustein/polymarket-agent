@@ -383,7 +383,13 @@ fn generate_agents(count: usize, category: &str, tp_sl_preset: &str, total_capit
 
 fn load_base_env() -> HashMap<String, String> {
     let mut env_vars = HashMap::new();
-    // Read from root .env
+
+    // First, inherit current process environment (for Docker)
+    for (key, value) in std::env::vars() {
+        env_vars.insert(key, value);
+    }
+
+    // Then read from root .env (overrides process env)
     if let Ok(content) = fs::read_to_string(".env") {
         for line in content.lines() {
             let line = line.trim();
@@ -411,24 +417,10 @@ fn load_base_env() -> HashMap<String, String> {
     env_vars
 }
 
-fn generate_env_file(agent: &GeneratedAgent, base_env: &HashMap<String, String>) -> String {
+fn generate_env_file(agent: &GeneratedAgent, _base_env: &HashMap<String, String>) -> String {
     let mut lines = Vec::new();
     lines.push(format!("# Auto-generated config for {} ({})", agent.id, agent.strategy));
-
-    // Copy all base env vars first
-    let override_keys = [
-        "INITIAL_BALANCE", "KELLY_FRACTION", "MIN_EDGE_THRESHOLD",
-        "MAX_POSITION_PCT", "EXIT_TP_PCT", "EXIT_SL_PCT",
-        "SCAN_INTERVAL_SECS", "CATEGORY_FILTER", "DB_PATH",
-        "PAPER_TRADING", "MAX_OPEN_POSITIONS", "SIM_FILLS_ENABLED",
-        "MIN_CONFIDENCE",
-    ];
-
-    for (key, val) in base_env {
-        if !override_keys.contains(&key.as_str()) {
-            lines.push(format!("{}={}", key, val));
-        }
-    }
+    lines.push("# Environment variables are passed via parent process, not duplicated here".to_string());
 
     // Agent-specific overrides
     lines.push(format!("INITIAL_BALANCE={:.2}", agent.capital));
@@ -455,6 +447,10 @@ fn generate_env_file(agent: &GeneratedAgent, base_env: &HashMap<String, String>)
 fn find_binary() -> Option<PathBuf> {
     // Check common locations for polyagent binary
     let candidates = [
+        // Docker/production (same directory as dashboard)
+        "./polyagent",
+        "/app/polyagent",
+        "polyagent",
         // Workspace root target (when built from workspace)
         "../target/release/polyagent.exe",
         "../target/release/polyagent",
@@ -1312,6 +1308,7 @@ async fn api_start(
     State(state): State<SharedState>,
     Json(req): Json<StartRequest>,
 ) -> Json<StartResponse> {
+    println!("[api_start] Received request: count={}, capital={}, mode={}", req.count, req.capital, req.mode);
     let count = req.count.clamp(1, 100);
     let capital = if req.capital > 0.0 { req.capital } else { 100.0 };
     let category = if req.category.is_empty() { "all".to_string() } else { req.category };
@@ -1320,6 +1317,9 @@ async fn api_start(
 
     // Validate: live trading requires WALLET_PRIVATE_KEY in base env
     let base_env = load_base_env();
+    println!("[api_start] base_env has {} vars, GEMINI_API_KEY present: {}",
+        base_env.len(),
+        base_env.contains_key("GEMINI_API_KEY"));
     if !paper_trading {
         let has_wallet = base_env.get("WALLET_PRIVATE_KEY")
             .map(|v| !v.is_empty())
@@ -1376,18 +1376,23 @@ async fn api_start(
         }
 
         // Spawn process
+        println!("[spawn] Spawning agent {} with binary {:?}, config: {}", agent.id, binary, config_path);
         let child = tokio::process::Command::new(&binary)
+            .current_dir("/app") // Set working directory explicitly
             .arg("--config-file")
             .arg(&config_path)
             .arg("--agent-id")
             .arg(&agent.id)
             .arg("--yes") // Ensure non-interactive mode
-            .stdout(std::process::Stdio::inherit())
+            .env("RUST_LOG", "info") // Force logging enabled
+            .envs(&base_env) // Pass environment variables to child process
+            .stdout(std::process::Stdio::inherit()) // Inherit to see agent output in logs
             .stderr(std::process::Stdio::inherit())
             .spawn();
 
         match child {
             Ok(process) => {
+                println!("[spawn] ✓ Agent {} spawned successfully", agent.id);
                 let tp_sl_label = format!("{:.0}%/{:.0}%", agent.tp * 100.0, agent.sl * 100.0);
                 agents_map.insert(agent.id.clone(), ChildAgent {
                     process,
@@ -1401,7 +1406,7 @@ async fn api_start(
                 started += 1;
             }
             Err(e) => {
-                eprintln!("Failed to spawn {}: {}", agent.id, e);
+                eprintln!("[spawn] ✗ Failed to spawn {}: {}", agent.id, e);
             }
         }
     }
@@ -2645,6 +2650,7 @@ async function confirmStart() {
         const data = await res.json();
         if (data.ok) {
             btn.textContent = 'STARTED ' + data.agents_started;
+            // Keep button disabled while agents are running
             const isLive = pendingStartBody.mode === 'live';
             if (isLive) {
                 showAlert('warning', 'LIVE agents running! ' + data.agents_started + ' agents menggunakan uang nyata. Monitor saldo secara berkala.');
@@ -2655,8 +2661,9 @@ async function confirmStart() {
             console.error('Start failed:', data);
             btn.textContent = 'FAILED';
             showAlert('danger', data.message || 'Failed to start agents. Check console for details.');
+            // Re-enable button only on failure
+            setTimeout(() => { btn.textContent = 'START'; btn.disabled = false; }, 2000);
         }
-        setTimeout(() => { btn.textContent = 'START'; btn.disabled = false; }, 2000);
         refresh();
     } catch (e) {
         console.error('Start network error:', e);

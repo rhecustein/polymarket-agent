@@ -3,12 +3,12 @@ use crate::analyzer::gemini::GeminiClient;
 use crate::team::data_analyst;
 use crate::team::types::{
     BearCase, BullCase, CaseStrength, DataPack, DeskReport, DevilsVerdict, MarketCandidate,
-    ResearchDossier,
+    ResearchDossier, TradePlan,
 };
 use anyhow::Result;
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
 const DEVILS_SYSTEM: &str = r#"You are the JUDGE — the impartial arbiter on a prediction market trading team. You receive arguments from both a Bull (YES) analyst and a Bear (NO) analyst, plus raw data and a specialist desk report.
@@ -246,4 +246,120 @@ fn extract_json(text: &str) -> String {
         }
     }
     text.to_string()
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CLAUDE FINAL VALIDATOR — Hakim Akhir dengan Threshold 60%
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ClaudeFinalVerdict {
+    pub approved: bool,
+    pub win_probability: f64,
+    pub confidence: f64,
+    pub reasoning: String,
+    pub risk_level: String, // "LOW", "MEDIUM", "HIGH", "GAMBLING"
+}
+
+const CLAUDE_FINAL_SYSTEM: &str = r#"Anda adalah HAKIM AKHIR untuk sistem trading prediction market.
+
+PERAN ANDA: Melindungi modal dengan menolak trade yang berisiko atau gambling.
+
+ATURAN KETAT:
+1. HANYA setujui jika probabilitas menang ≥ 60%
+2. TOLAK jika terdeteksi perilaku gambling (tebakan acak, tidak ada edge jelas)
+3. TOLAK jika confidence rendah atau reasoning lemah
+4. Evaluasi: kualitas data, logika, magnitude edge
+
+Output HANYA JSON:
+{
+  "approved": true/false,
+  "win_probability": 0.0-1.0,
+  "confidence": 0.0-1.0,
+  "reasoning": "penjelasan singkat dalam bahasa Indonesia",
+  "risk_level": "LOW|MEDIUM|HIGH|GAMBLING"
+}
+
+Bersikap KONSERVATIF. Jika ragu, TOLAK.
+Jangan pakai markdown code blocks, langsung JSON."#;
+
+/// Claude Final Validator: Validasi akhir sebelum execute trade
+/// Threshold: 60% win rate minimum
+pub async fn claude_final_validator(
+    claude: &ClaudeClient,
+    plan: &TradePlan,
+) -> Result<ClaudeFinalVerdict> {
+    let user_msg = format!(
+        r#"Evaluasi Trade Plan Ini:
+
+Market: {}
+Arah: {}
+Harga Saat Ini: {}
+Fair Value: {}
+Edge: {:.2}%
+Confidence: {:.2}
+
+Mode Trading: {}
+Ukuran Posisi: ${}
+Take Profit: {:?}%
+Stop Loss: {:?}%
+
+Ringkasan Analisis:
+- Specialist: {}
+- Bull Probability: {:?}%
+- Bear Probability: {:?}%
+- Reasoning: {}
+
+TUGAS ANDA: Validasi trade ini. Apakah layak dieksekusi?
+INGAT: Hanya setujui jika win rate ≥ 60% DAN ada edge jelas.
+
+Berikan penilaian dalam JSON format."#,
+        plan.market.question,
+        plan.direction,
+        plan.entry_price,
+        plan.fair_value_yes,
+        plan.edge * Decimal::from(100),
+        plan.confidence,
+        plan.mode,
+        plan.bet_size,
+        plan.take_profit_pct.to_f64().map(|v| v * 100.0),
+        plan.stop_loss_pct.to_f64().map(|v| v * 100.0),
+        plan.specialist_desk.as_deref().unwrap_or("GENERAL"),
+        plan.bull_probability.map(|v| v * 100.0),
+        plan.bear_probability.map(|v| v * 100.0),
+        plan.reasoning,
+    );
+
+    let (response, cost) = claude.call(CLAUDE_FINAL_SYSTEM, &user_msg, 600).await?;
+
+    // Parse JSON response
+    let json_str = extract_json(&response);
+    let verdict: ClaudeFinalVerdict = serde_json::from_str(&json_str)
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to parse Claude final verdict: {} | Response: {}",
+                e,
+                &json_str[..json_str.len().min(300)]
+            )
+        })?;
+
+    // Log decision
+    if verdict.approved {
+        info!(
+            "✅ CLAUDE APPROVED: {:.0}% win | {} risk | ${:.4} cost | {}",
+            verdict.win_probability * 100.0,
+            verdict.risk_level,
+            cost,
+            &verdict.reasoning[..verdict.reasoning.len().min(60)]
+        );
+    } else {
+        warn!(
+            "❌ CLAUDE REJECTED: {} | {} | ${:.4} cost",
+            verdict.risk_level,
+            verdict.reasoning,
+            cost
+        );
+    }
+
+    Ok(verdict)
 }

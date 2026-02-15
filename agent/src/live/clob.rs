@@ -12,7 +12,9 @@ pub struct ClobClient {
 
 #[derive(Debug, Clone)]
 pub struct OrderBookSummary {
+    #[allow(dead_code)]
     pub best_bid: Decimal,
+    #[allow(dead_code)]
     pub best_ask: Decimal,
     pub spread: Decimal,
     pub bid_depth: Decimal,
@@ -31,6 +33,7 @@ struct ClobLevel {
     size: String,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ClobPriceResponse {
     price: Option<String>,
@@ -101,6 +104,7 @@ impl ClobClient {
     }
 
     /// Get mid-price for a token
+    #[allow(dead_code)]
     pub async fn get_price(&self, token_id: &str) -> Result<Decimal> {
         let url = format!("{}/price?token_id={}", self.base_url, token_id);
 
@@ -130,6 +134,7 @@ impl ClobClient {
     }
 
     /// Place a limit order (returns order ID)
+    #[allow(dead_code)]
     pub async fn place_order(
         &self,
         token_id: &str,
@@ -176,6 +181,7 @@ impl ClobClient {
     }
 
     /// Check order status
+    #[allow(dead_code)]
     pub async fn get_order_status(&self, order_id: &str) -> Result<String> {
         let url = format!("{}/order/{}", self.base_url, order_id);
 
@@ -201,6 +207,7 @@ impl ClobClient {
     }
 
     /// Cancel an order
+    #[allow(dead_code)]
     pub async fn cancel_order(&self, order_id: &str) -> Result<()> {
         let url = format!("{}/order/{}", self.base_url, order_id);
 

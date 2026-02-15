@@ -4,6 +4,8 @@ use anyhow::{Context, Result};
 use lettre::message::header::ContentType;
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
 use tracing::{error, info};
 
 pub struct EmailAlert {
@@ -101,6 +103,52 @@ impl EmailAlert {
         let model_stats = build_model_stats(&closed);
 
         let body = build_periodic_html(stats, cycle_count, in_survival, &category_stats, &mode_stats, &model_stats, &portfolio.open_trades());
+        self.send_html_email(&subject, &body).await
+    }
+
+    /// Send individual trade closed notification
+    pub async fn send_trade_closed(&self, trade: &Trade) -> Result<()> {
+        if !self.is_configured() {
+            return Ok(());
+        }
+
+        let pnl_sign = if trade.pnl > Decimal::ZERO { "+" } else { "" };
+        let pnl_color = if trade.pnl > Decimal::ZERO {
+            "#10b981"
+        } else if trade.pnl < Decimal::ZERO {
+            "#ef4444"
+        } else {
+            "#6b7280"
+        };
+
+        let result_emoji = if trade.pnl > Decimal::ZERO { "✅" } else { "❌" };
+        let result_label = if trade.pnl > Decimal::ZERO { "WIN" } else { "LOSS" };
+
+        let hold_hours = trade.hold_duration_hours.unwrap_or(0.0);
+        let exit_reason = trade.exit_reason
+            .map(|r| format!("{:?}", r))
+            .unwrap_or_else(|| "N/A".to_string());
+
+        let pnl_pct = if trade.bet_size > Decimal::ZERO {
+            (trade.pnl / trade.bet_size * Decimal::from(100))
+                .to_f64()
+                .unwrap_or(0.0)
+        } else {
+            0.0
+        };
+
+        let subject = format!(
+            "{} Trade {} | {}${} ({}{:.1}%)",
+            result_emoji,
+            result_label,
+            pnl_sign,
+            trade.pnl.abs(),
+            pnl_sign,
+            pnl_pct.abs()
+        );
+
+        let body = build_trade_email_html(trade, pnl_color, result_label, &exit_reason, hold_hours, pnl_pct);
+
         self.send_html_email(&subject, &body).await
     }
 
@@ -507,6 +555,138 @@ fn build_periodic_html(
         streak = stats.consecutive_losses, api = stats.total_api_cost, cycles = cycle_count,
         cat_rows = cat_rows, mode_rows = mode_rows, model_rows = model_rows,
         open_rows = open_rows, trades = trades_html,
+    )
+}
+
+/// Build modern trade closed email HTML
+fn build_trade_email_html(
+    trade: &Trade,
+    pnl_color: &str,
+    result_label: &str,
+    exit_reason: &str,
+    hold_hours: f64,
+    pnl_pct: f64,
+) -> String {
+    let pnl_sign = if trade.pnl > Decimal::ZERO { "+" } else { "" };
+    let exit_price = trade.exit_price.unwrap_or(Decimal::ZERO);
+    let mode = trade.trade_mode.as_deref().unwrap_or("N/A");
+    let desk = trade.specialist_desk.as_deref().unwrap_or("GENERAL");
+
+    // Calculate fees if available
+    let total_fees = trade.entry_gas_fee + trade.exit_gas_fee + trade.platform_fee + trade.maker_taker_fee;
+    let _total_slippage = trade.entry_slippage + trade.exit_slippage;
+    let fees_line = if total_fees > Decimal::ZERO {
+        format!(
+            "<tr><td style='padding:10px;color:#6b7280;font-size:14px'>Total Fees</td><td style='padding:10px;text-align:right;color:#ef4444;font-size:14px'>${}</td></tr>",
+            total_fees
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r#"<!DOCTYPE html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="margin:0;padding:20px;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif">
+<div style="max-width:600px;margin:0 auto;background:#ffffff;border-radius:16px;box-shadow:0 4px 6px rgba(0,0,0,0.1);overflow:hidden">
+
+<!-- Header -->
+<div style="background:linear-gradient(135deg,{pnl_color} 0%,{pnl_color}dd 100%);padding:32px;text-align:center">
+  <div style="font-size:48px;margin-bottom:8px">{emoji}</div>
+  <h1 style="margin:0;color:#ffffff;font-size:28px;font-weight:700">{result}</h1>
+  <p style="margin:8px 0 0;color:#ffffffcc;font-size:16px">Trade Closed Notification</p>
+</div>
+
+<!-- P&L Section -->
+<div style="padding:32px;background:#f9fafb;border-bottom:1px solid #e5e7eb">
+  <div style="text-align:center">
+    <p style="margin:0 0 8px;color:#6b7280;font-size:14px;text-transform:uppercase;letter-spacing:1px">Profit/Loss</p>
+    <p style="margin:0;color:{pnl_color};font-size:42px;font-weight:700">{pnl_sign}${pnl}</p>
+    <p style="margin:8px 0 0;color:{pnl_color};font-size:20px;font-weight:600">{pnl_sign}{pnl_pct:.2}%</p>
+  </div>
+</div>
+
+<!-- Market Info -->
+<div style="padding:24px 32px;border-bottom:1px solid #e5e7eb">
+  <h3 style="margin:0 0 16px;color:#111827;font-size:16px;font-weight:600">Market</h3>
+  <p style="margin:0;color:#374151;font-size:15px;line-height:1.6">{question}</p>
+</div>
+
+<!-- Trade Details -->
+<div style="padding:24px 32px">
+  <h3 style="margin:0 0 16px;color:#111827;font-size:16px;font-weight:600">Trade Details</h3>
+  <table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse">
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Direction</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">{direction}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Mode</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">{mode}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Specialist Desk</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">{desk}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Position Size</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">${size}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Entry Price</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">${entry}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Exit Price</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">${exit}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Fair Value</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">${fair}</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Edge</td>
+      <td style="padding:10px 0;text-align:right;color:#3b82f6;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">{edge}%</td>
+    </tr>
+    {fees_line}
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px;border-bottom:1px solid #f3f4f6">Hold Duration</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600;border-bottom:1px solid #f3f4f6">{hold:.1}h</td>
+    </tr>
+    <tr>
+      <td style="padding:10px 0;color:#6b7280;font-size:14px">Exit Reason</td>
+      <td style="padding:10px 0;text-align:right;color:#111827;font-size:14px;font-weight:600">{exit_reason}</td>
+    </tr>
+  </table>
+</div>
+
+<!-- Footer -->
+<div style="padding:24px 32px;background:#f9fafb;text-align:center">
+  <p style="margin:0;color:#6b7280;font-size:13px">Polymarket Trading Agent v2.0</p>
+  <p style="margin:8px 0 0;color:#9ca3af;font-size:12px">Trade ID: {trade_id}</p>
+</div>
+
+</div>
+</body></html>"#,
+        pnl_color = pnl_color,
+        emoji = if trade.pnl > Decimal::ZERO { "🎉" } else { "📉" },
+        result = result_label,
+        pnl_sign = pnl_sign,
+        pnl = trade.pnl.abs(),
+        pnl_pct = pnl_pct.abs(),
+        question = trade.question,
+        direction = trade.direction,
+        mode = mode,
+        desk = desk,
+        size = trade.bet_size,
+        entry = trade.entry_price,
+        exit = exit_price,
+        fair = trade.fair_value,
+        edge = (trade.edge * Decimal::from(100)).round_dp(1),
+        fees_line = fees_line,
+        hold = hold_hours,
+        exit_reason = exit_reason,
+        trade_id = trade.id,
     )
 }
 

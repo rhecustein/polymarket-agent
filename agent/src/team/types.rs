@@ -46,6 +46,7 @@ impl std::fmt::Display for CaseStrength {
 pub struct MarketCandidate {
     pub market: Market,
     pub quality_score: f64,
+    #[allow(dead_code)]
     pub reason: String,
 }
 
@@ -62,7 +63,9 @@ pub struct ScoutReport {
 pub struct DataPack {
     pub market_id: String,
     pub enrichment: EnrichmentData,
+    #[allow(dead_code)]
     pub price_trend_24h: Option<f64>,
+    #[allow(dead_code)]
     pub volume_trend: Option<f64>,
     pub order_book_spread: Option<Decimal>,
     pub order_book_bid_depth: Option<Decimal>,
@@ -152,6 +155,7 @@ pub struct RiskDecision {
     pub approved: bool,
     pub position_size: Decimal,
     pub reason: String,
+    #[allow(dead_code)]
     pub adjustments: Vec<String>,
 }
 
@@ -165,10 +169,12 @@ pub struct TradePlan {
     pub confidence: Decimal,
     pub mode: TradeMode,
     pub bet_size: Decimal,
+    #[allow(dead_code)]
     pub entry_price: Decimal,
     pub take_profit_pct: Decimal,
     pub stop_loss_pct: Decimal,
     pub max_hold_hours: u64,
+    #[allow(dead_code)]
     pub check_interval_secs: u64,
     pub reasoning: String,
     // Agent trail for paper trading

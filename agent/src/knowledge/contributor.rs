@@ -1,3 +1,8 @@
+//! Knowledge Contributor - Share trade data to proxy
+//! NOTE: Currently inactive - Local-only knowledge collection is used instead
+
+#![allow(dead_code)]
+
 use anyhow::Result;
 use serde::Serialize;
 use tracing::{info, warn};

@@ -64,6 +64,8 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    eprintln!("[AGENT STARTING] Binary executing..."); // DEBUG: Before anything else
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -71,8 +73,21 @@ async fn main() -> Result<()> {
         )
         .init();
 
+    eprintln!("[AGENT] Logger initialized"); // DEBUG: After logger init
+
     let cli = Cli::parse();
-    let mut cfg = Config::from_env_file(cli.config_file.as_deref())?;
+    eprintln!("[AGENT] CLI parsed: agent_id={:?}", cli.agent_id); // DEBUG: After CLI parse
+
+    let mut cfg = match Config::from_env_file(cli.config_file.as_deref()) {
+        Ok(c) => {
+            eprintln!("[AGENT] Config loaded successfully");
+            c
+        }
+        Err(e) => {
+            eprintln!("[AGENT ERROR] Failed to load config: {}", e);
+            return Err(e);
+        }
+    };
 
     if let Some(ref agent_id) = cli.agent_id {
         cfg.db_path = format!("data/{}.db", agent_id);
@@ -133,9 +148,11 @@ async fn main() -> Result<()> {
     let claude = ClaudeClient::new(&cfg.claude_api_key);
     let enricher = Enricher::new();
 
-    // Claude/Sonnet disabled for cost optimization (Gemini-only mode)
+    // Claude Sonnet: AKTIF sebagai Hakim Akhir (Final Validator)
     if claude.is_configured() {
-        info!("Claude API key detected but DISABLED (Gemini-only mode for cost optimization)");
+        info!("✅ Claude Sonnet 4.5 AKTIF sebagai Hakim Akhir (threshold 60%)");
+    } else {
+        warn!("⚠️  CLAUDE_API_KEY tidak diset - validasi akhir DISABLED!");
     }
     let portfolio = Portfolio::new(cfg.initial_balance);
     let sim = SimConfig::from_config(&cfg);
@@ -270,7 +287,7 @@ async fn main() -> Result<()> {
                         paused = true;
                     }
                     // Still monitor positions during pause
-                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
+                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &emailer, &cfg, &mut audit_trade_count, &sim).await;
                     sleep_or_shutdown(&mut shutdown_rx, interval).await;
                     continue;
                 }
@@ -282,7 +299,7 @@ async fn main() -> Result<()> {
                 }
                 LossAction::SkipCycle => {
                     warn!("3+ losses: skipping this cycle");
-                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
+                    resolve_open_trades(&portfolio, &gamma, &store, &telegram, &emailer, &cfg, &mut audit_trade_count, &sim).await;
                     sleep_or_shutdown(&mut shutdown_rx, interval).await;
                     continue;
                 }
@@ -306,7 +323,7 @@ async fn main() -> Result<()> {
 
         // ── Step 2: Resolve Open Trades ──
         if !knowledge_only {
-            resolve_open_trades(&portfolio, &gamma, &store, &telegram, &cfg, &mut audit_trade_count, &sim).await;
+            resolve_open_trades(&portfolio, &gamma, &store, &telegram, &emailer, &cfg, &mut audit_trade_count, &sim).await;
         }
 
         // ── Step 3: Run Team Pipeline ──
@@ -391,10 +408,13 @@ async fn main() -> Result<()> {
             last_periodic_report = chrono::Utc::now();
         }
 
-        // ── Daily Report (legacy, at midnight UTC) ──
+        // ── Daily Report (at midnight UTC) ──
         let today = chrono::Utc::now().date_naive();
         if today > last_daily_report {
+            info!("Sending daily summary (midnight UTC)...");
             store.save_daily_snapshot(&stats).ok();
+            let in_survival = effective_max_pct < cfg.max_position_pct;
+            emailer.send_daily_summary(&stats, cycle as u32, in_survival).await.ok();
             last_daily_report = today;
         }
 
@@ -451,7 +471,7 @@ async fn main() -> Result<()> {
 
         // ── Low balance alert ──
         let balance_pct = if cfg.initial_balance > Decimal::ZERO {
-            (portfolio.balance() / cfg.initial_balance * Decimal::from(100))
+            portfolio.balance() / cfg.initial_balance * Decimal::from(100)
         } else { Decimal::from(100) };
         if balance_pct < Decimal::from(70) {
             telegram.send_critical_alert(&format!(
@@ -507,6 +527,7 @@ async fn main() -> Result<()> {
                                 reason, &trade.question[..trade.question.len().min(35)],
                                 trade.pnl, trade.direction);
                             telegram.send_trade_closed_alert(trade).await.ok();
+                            emailer.send_trade_closed(trade).await.ok();
                         }
                         if !resolved.is_empty() {
                             info!("[{}/{}] {} resolved, {} open",
@@ -539,6 +560,7 @@ async fn resolve_open_trades(
     gamma: &GammaScanner,
     store: &StateStore,
     telegram: &TelegramAlert,
+    emailer: &EmailAlert,
     cfg: &Config,
     audit_count: &mut usize,
     sim: &SimConfig,
@@ -554,7 +576,10 @@ async fn resolve_open_trades(
 
     for trade in &resolved {
         store.save_trade(trade).ok();
+
+        // Send notifications (Telegram + Email)
         telegram.send_trade_closed_alert(trade).await.ok();
+        emailer.send_trade_closed(trade).await.ok();
 
         // Collect knowledge for future improvements
         if let Err(e) = knowledge.collect_on_trade_close(trade) {

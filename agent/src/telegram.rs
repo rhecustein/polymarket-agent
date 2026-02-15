@@ -58,7 +58,8 @@ impl TelegramAlert {
         Ok(())
     }
 
-    /// Send a trade alert
+    /// Send a trade alert (basic version - send_paper_trade_alert is preferred for v2.0)
+    #[allow(dead_code)]
     pub async fn send_trade_alert(&self, trade: &Trade) -> Result<()> {
         if !self.is_configured() {
             return Ok(());
@@ -126,6 +127,7 @@ impl TelegramAlert {
     }
 
     /// Send trade closed alert with TP/SL-specific rich notifications
+    /// Send detailed trade closed notification
     pub async fn send_trade_closed_alert(&self, trade: &Trade) -> Result<()> {
         if !self.is_configured() {
             return Ok(());

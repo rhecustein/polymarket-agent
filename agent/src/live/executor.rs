@@ -7,6 +7,8 @@ use rust_decimal::Decimal;
 use tracing::{debug, info, warn};
 
 /// Live trading engine that places real orders on Polymarket CLOB
+/// NOTE: Currently inactive - Paper trading is used instead
+#[allow(dead_code)]
 pub struct LiveEngine {
     clob: ClobClient,
     wallet: LocalWallet,
@@ -22,6 +24,7 @@ pub struct LiveEngine {
 }
 
 impl LiveEngine {
+    #[allow(dead_code)]
     pub fn new(clob_url: &str, private_key: &str, initial_balance: Decimal) -> Result<Self> {
         let wallet: LocalWallet = private_key
             .parse()
@@ -48,6 +51,7 @@ impl LiveEngine {
     }
 
     /// Get current CLOB price for a market's YES token
+    #[allow(dead_code)]
     pub async fn get_clob_price(&self, market: &Market) -> Result<Decimal> {
         let yes_token = market
             .tokens
@@ -59,6 +63,7 @@ impl LiveEngine {
     }
 
     /// Place a limit order and wait for fill
+    #[allow(dead_code)]
     pub async fn execute_trade(
         &mut self,
         market: &Market,
@@ -209,6 +214,7 @@ impl LiveEngine {
     }
 
     /// Check resolution status of open trades
+    #[allow(dead_code)]
     pub async fn check_resolutions(&mut self) -> Vec<Trade> {
         let resolved = Vec::new();
 
@@ -237,6 +243,7 @@ impl LiveEngine {
         resolved
     }
 
+    #[allow(dead_code)]
     pub fn record_win(&mut self, trade_id: &str, payout: Decimal) {
         if let Some(trade) = self.trades.iter_mut().find(|t| t.id == trade_id) {
             trade.status = TradeStatus::Won;
@@ -253,6 +260,7 @@ impl LiveEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn record_loss(&mut self, trade_id: &str) {
         if let Some(trade) = self.trades.iter_mut().find(|t| t.id == trade_id) {
             trade.status = TradeStatus::Lost;
@@ -272,14 +280,17 @@ impl LiveEngine {
         }
     }
 
+    #[allow(dead_code)]
     pub fn balance(&self) -> Decimal {
         self.balance
     }
 
+    #[allow(dead_code)]
     pub fn consecutive_losses(&self) -> u32 {
         self.consecutive_losses
     }
 
+    #[allow(dead_code)]
     pub fn add_api_cost(&mut self, cost: Decimal) {
         self.total_api_cost += cost;
     }

@@ -16,6 +16,7 @@ pub struct SimConfig {
     pub gas_fee_min: Decimal,
     pub gas_fee_max: Decimal,
     pub platform_fee_pct: Decimal,
+    #[allow(dead_code)]
     pub maker_fee_pct: Decimal,
     pub taker_fee_pct: Decimal,
     pub base_slippage_pct: Decimal,
@@ -51,6 +52,7 @@ impl SimConfig {
         }
     }
 
+    #[allow(dead_code)]
     pub fn disabled() -> Self {
         Self {
             fees_enabled: false,
@@ -649,6 +651,7 @@ impl Portfolio {
         closed
     }
 
+    #[allow(dead_code)]
     pub fn add_api_cost(&self, cost: Decimal) {
         self.inner.lock().unwrap().total_api_cost += cost;
     }
@@ -743,6 +746,7 @@ impl Portfolio {
     }
 
     /// Get total trades count (open + closed)
+    #[allow(dead_code)]
     pub fn total_trade_count(&self) -> usize {
         let inner = self.inner.lock().unwrap();
         inner.trades.len()

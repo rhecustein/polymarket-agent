@@ -41,8 +41,9 @@ RUN apt-get update && \
 
 WORKDIR /app
 
-# Copy dashboard binary
+# Copy binaries
 COPY --from=builder /build/target/release/dashboard /app/dashboard
+COPY --from=builder /build/target/release/polyagent /app/polyagent
 
 # Create data directories
 RUN mkdir -p /app/data /app/configs

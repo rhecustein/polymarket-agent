@@ -77,6 +77,7 @@ impl GeminiClient {
         }
     }
 
+    #[allow(dead_code)]
     pub fn is_configured(&self) -> bool {
         !self.api_key.is_empty()
     }

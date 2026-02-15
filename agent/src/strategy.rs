@@ -6,6 +6,7 @@ pub struct KellyResult {
     pub full_kelly: Decimal,
     pub adjusted_kelly: Decimal, // full * kelly_fraction
     pub bet_size: Decimal,
+    #[allow(dead_code)]
     pub max_allowed: Decimal,
     pub risk_level: &'static str,
     pub expected_value: Decimal,

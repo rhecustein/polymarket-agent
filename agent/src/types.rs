@@ -28,7 +28,8 @@ pub struct Market {
     pub fetched_at: DateTime<Utc>,
 }
 
-/// Pre-filter score for Tier 0 heuristic ranking
+/// Pre-filter score for Tier 0 heuristic ranking (Legacy - not used in v2.0)
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct ScoredMarket {
     pub market: Market,
@@ -36,7 +37,8 @@ pub struct ScoredMarket {
     pub reason: String,
 }
 
-/// Haiku quick-screen result (Tier 1)
+/// Haiku quick-screen result (Tier 1) (Legacy - team v2.0 uses different pipeline)
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuickScreen {
     pub market_id: String,

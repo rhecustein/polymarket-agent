@@ -1,3 +1,8 @@
+//! Knowledge Consumer - Fetch community insights from proxy
+//! NOTE: Currently inactive - Local-only knowledge collection is used instead
+
+#![allow(dead_code)]
+
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;

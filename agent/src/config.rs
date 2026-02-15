@@ -5,7 +5,9 @@ use std::str::FromStr;
 #[derive(Debug, Clone)]
 pub struct Config {
     pub claude_api_key: String,
+    #[allow(dead_code)]
     pub claude_model_haiku: String,
+    #[allow(dead_code)]
     pub claude_model_sonnet: String,
     pub initial_balance: Decimal,
     pub max_position_pct: Decimal,
@@ -14,14 +16,20 @@ pub struct Config {
     pub kelly_fraction: Decimal,
     pub scan_interval_secs: u64,
     pub max_markets_to_scan: usize,
+    #[allow(dead_code)]
     pub max_haiku_per_cycle: usize,
+    #[allow(dead_code)]
     pub max_sonnet_per_cycle: usize,
     pub gamma_api_base: String,
     pub polymarket_clob_api: String,
+    #[allow(dead_code)]
     pub polymarket_host: String,
     pub wallet_private_key: String,
+    #[allow(dead_code)]
     pub poly_api_key: String,
+    #[allow(dead_code)]
     pub poly_secret: String,
+    #[allow(dead_code)]
     pub poly_passphrase: String,
     pub smtp_host: String,
     pub smtp_port: u16,
@@ -33,10 +41,13 @@ pub struct Config {
     pub telegram_chat_id: String,
     pub db_path: String,
     pub paper_trading: bool,
+    #[allow(dead_code)]
     pub simulate_ai: bool,
     // v0.3 Genetic algorithm fields
     pub gemini_api_key: String,
+    #[allow(dead_code)]
     pub screen_model: String,  // haiku, sonnet, gemini, simulated
+    #[allow(dead_code)]
     pub deep_model: String,    // haiku, sonnet, gemini, cached
     pub min_confidence: Decimal,
     pub category_filter: String, // "all", "crypto", "weather", "sports", "politics", "no_politics", etc.
@@ -83,6 +94,7 @@ impl Config {
         Self::build_from_env()
     }
 
+    #[allow(dead_code)]
     pub fn from_env() -> Result<Self> {
         dotenvy::dotenv().ok();
         Self::build_from_env()

@@ -402,6 +402,7 @@ impl StateStore {
     }
 
     /// Log a price observation for audit trail
+    #[allow(dead_code)]
     pub fn log_price(
         &self,
         market_id: &str,
@@ -459,7 +460,8 @@ impl StateStore {
         Ok(())
     }
 
-    /// Save enhanced trade with paper trading fields
+    /// Save enhanced trade with paper trading fields (alias for save_trade)
+    #[allow(dead_code)]
     pub fn save_paper_trade(&self, trade: &Trade) -> Result<()> {
         // Use the standard save_trade for core fields
         self.save_trade(trade)?;

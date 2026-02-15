@@ -371,6 +371,40 @@ async fn analyze_candidate(
         return result;
     }
 
+    // ══ CLAUDE FINAL VALIDATOR (Hakim Akhir - Threshold 60%) ══
+    if claude.is_configured() {
+        info!("  ⚖️  Validasi Hakim Akhir (Claude Sonnet)...");
+        match judge::claude_final_validator(claude, &plan).await {
+            Ok(claude_verdict) => {
+                // Tambahkan API cost Claude (Sonnet: $3/1M in + $15/1M out)
+                // Estimasi: ~500 input + ~400 output tokens = ~$0.007
+                result.api_cost += Decimal::from_str("0.007").unwrap();
+
+                if !claude_verdict.approved {
+                    warn!(
+                        "  ❌ CLAUDE REJECTED: {} | Win: {:.0}% | {}",
+                        claude_verdict.risk_level,
+                        claude_verdict.win_probability * 100.0,
+                        claude_verdict.reasoning
+                    );
+                    return result;
+                }
+
+                info!(
+                    "  ✅ CLAUDE APPROVED: Win {:.0}% | Conf {:.0}% | {}",
+                    claude_verdict.win_probability * 100.0,
+                    claude_verdict.confidence * 100.0,
+                    claude_verdict.risk_level
+                );
+            }
+            Err(e) => {
+                error!("  ⚠️  Claude validation failed: {e} — proceeding without validation");
+            }
+        }
+    } else {
+        warn!("  ⚠️  Claude Final Validator DISABLED (no API key)");
+    }
+
     // ── Executor ──
     store.update_status("trading", &format!("Executing {} trade...", verdict.direction)).ok();
     if let Some(_trade) = executor::execute(&plan, portfolio, store, telegram, &sim).await {
