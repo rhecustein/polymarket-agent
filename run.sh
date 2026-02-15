@@ -45,11 +45,8 @@ echo ""
 cd "$ROOT_DIR/proxy"
 # Check workspace root target first, then per-crate target
 PROXY_BIN="$ROOT_DIR/target/release/polyproxy"
-if [ ! -f "$PROXY_BIN" ] && [ ! -f "${PROXY_BIN}.exe" ]; then
+if [ ! -f "$PROXY_BIN" ]; then
     PROXY_BIN="$ROOT_DIR/proxy/target/release/polyproxy"
-fi
-if [ -f "${PROXY_BIN}.exe" ]; then
-    PROXY_BIN="${PROXY_BIN}.exe"
 fi
 "$PROXY_BIN" &
 PROXY_PID=$!
@@ -61,11 +58,8 @@ sleep 1
 cd "$ROOT_DIR/agent"
 # Check workspace root target first, then per-crate target
 DASH_BIN="$ROOT_DIR/target/release/dashboard"
-if [ ! -f "$DASH_BIN" ] && [ ! -f "${DASH_BIN}.exe" ]; then
+if [ ! -f "$DASH_BIN" ]; then
     DASH_BIN="$ROOT_DIR/agent/target/release/dashboard"
-fi
-if [ -f "${DASH_BIN}.exe" ]; then
-    DASH_BIN="${DASH_BIN}.exe"
 fi
 "$DASH_BIN" &
 DASH_PID=$!

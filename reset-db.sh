@@ -1,9 +1,10 @@
 #!/bin/bash
 
 echo "🛑 Stopping all agent processes..."
-# Try to kill using taskkill (Windows) or pkill (Linux/Mac)
-taskkill //F //IM polyagent.exe //T 2>/dev/null || pkill -f polyagent
-taskkill //F //IM dashboard.exe //T 2>/dev/null || pkill -f dashboard
+# Kill all polyagent and dashboard processes
+pkill -f polyagent || true
+pkill -f dashboard || true
+pkill -f polyproxy || true
 sleep 1
 
 echo "🧹 Cleaning up data directory..."

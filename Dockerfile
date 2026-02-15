@@ -65,6 +65,9 @@ WORKDIR /app
 # Copy proxy binary
 COPY --from=builder /build/target/release/polyproxy /app/polyproxy
 
+# Create data directory for proxy.db
+RUN mkdir -p /app/data
+
 ENV RUST_LOG=info
 EXPOSE 3001
 
