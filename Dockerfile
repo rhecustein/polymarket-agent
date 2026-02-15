@@ -28,8 +28,9 @@ RUN mkdir -p agent/src/bin && \
 COPY agent/src ./agent/src
 
 # Clean cache and build for real
+# Reduce parallel jobs to avoid OOM on resource-constrained servers
 RUN rm -rf target/release/deps/polymarket* target/release/deps/dashboard* && \
-    cargo build --release --manifest-path agent/Cargo.toml
+    cargo build --release --manifest-path agent/Cargo.toml -j 2
 
 # ── Stage 2: Runtime ──
 FROM debian:bookworm-slim
