@@ -2,45 +2,19 @@ version: '3.8'
 
 services:
   # ══════════════════════════════════════════════
-  # Proxy API - Data aggregation service
-  # Port: 3001
+  # Polymarket Agent - Unified Service
+  # Runs both proxy (3001) + dashboard (3000)
+  # Matches run.sh behavior in Docker
   # ══════════════════════════════════════════════
-  proxy:
+  polymarket:
     build:
       context: .
       dockerfile: Dockerfile
-      target: proxy
-    container_name: polymarket-proxy
+    container_name: polymarket-agent
     restart: unless-stopped
     ports:
-      - "3001:3001"
-    env_file:
-      - .env
-    environment:
-      - RUST_LOG=${RUST_LOG:-info}
-    networks:
-      - polymarket-net
-    healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/3001' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-
-  # ══════════════════════════════════════════════
-  # Dashboard - Multi-agent management UI
-  # Port: 3000
-  # Manages agents from web interface
-  # ══════════════════════════════════════════════
-  dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      target: dashboard
-    container_name: polymarket-dashboard
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
+      - "3000:3000"  # Dashboard
+      - "3001:3001"  # Proxy API
     env_file:
       - .env
     environment:
@@ -50,11 +24,14 @@ services:
       - agent-data:/app/data
       # Agent configurations
       - agent-configs:/app/configs
-    depends_on:
-      proxy:
-        condition: service_healthy
     networks:
       - polymarket-net
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/3001' && timeout 5 bash -c '</dev/tcp/localhost/3000' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
 
 # ══════════════════════════════════════════════
 # Volumes - Persistent storage
