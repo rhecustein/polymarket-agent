@@ -275,19 +275,19 @@ struct StrategyPreset {
 }
 
 const PRESETS: [StrategyPreset; 13] = [
-    StrategyPreset { name: "Balanced",        kelly: 0.40, edge: 0.07, position: 0.10, tp: 0.0, sl: 0.0, interval: 3600 },
-    StrategyPreset { name: "Conservative",    kelly: 0.30, edge: 0.10, position: 0.07, tp: 0.0, sl: 0.0, interval: 3600 },
-    StrategyPreset { name: "Patient",         kelly: 0.35, edge: 0.07, position: 0.08, tp: 0.10, sl: 0.07, interval: 3600 },
-    StrategyPreset { name: "Win-Biased",      kelly: 0.40, edge: 0.10, position: 0.10, tp: 0.08, sl: 0.05, interval: 3600 },
-    StrategyPreset { name: "High Conviction", kelly: 0.50, edge: 0.12, position: 0.12, tp: 0.08, sl: 0.05, interval: 3600 },
-    StrategyPreset { name: "Tight Risk",      kelly: 0.35, edge: 0.10, position: 0.07, tp: 0.05, sl: 0.03, interval: 3600 },
-    StrategyPreset { name: "Swing Trader",    kelly: 0.40, edge: 0.07, position: 0.10, tp: 0.15, sl: 0.10, interval: 7200 },
-    StrategyPreset { name: "Ultra Safe",      kelly: 0.20, edge: 0.15, position: 0.05, tp: 0.05, sl: 0.05, interval: 3600 },
-    StrategyPreset { name: "Scalper",         kelly: 0.45, edge: 0.05, position: 0.08, tp: 0.03, sl: 0.03, interval: 1800 },
-    StrategyPreset { name: "Aggressive",      kelly: 0.50, edge: 0.05, position: 0.12, tp: 0.05, sl: 0.05, interval: 3600 },
-    StrategyPreset { name: "Berserker",       kelly: 0.60, edge: 0.15, position: 0.60, tp: 0.12, sl: 0.05, interval: 3600 },
-    StrategyPreset { name: "YOLO",            kelly: 0.70, edge: 0.12, position: 0.80, tp: 0.15, sl: 0.06, interval: 1800 },
-    StrategyPreset { name: "All-In",          kelly: 0.80, edge: 0.20, position: 1.00, tp: 0.25, sl: 0.00, interval: 3600 },
+    StrategyPreset { name: "Balanced",        kelly: 0.40, edge: 0.04, position: 0.10, tp: 0.0, sl: 0.0, interval: 3600 },
+    StrategyPreset { name: "Conservative",    kelly: 0.30, edge: 0.05, position: 0.07, tp: 0.0, sl: 0.0, interval: 3600 },
+    StrategyPreset { name: "Patient",         kelly: 0.35, edge: 0.04, position: 0.08, tp: 0.10, sl: 0.07, interval: 3600 },
+    StrategyPreset { name: "Win-Biased",      kelly: 0.40, edge: 0.05, position: 0.10, tp: 0.08, sl: 0.05, interval: 3600 },
+    StrategyPreset { name: "High Conviction", kelly: 0.50, edge: 0.06, position: 0.12, tp: 0.08, sl: 0.05, interval: 3600 },
+    StrategyPreset { name: "Tight Risk",      kelly: 0.35, edge: 0.05, position: 0.07, tp: 0.05, sl: 0.03, interval: 3600 },
+    StrategyPreset { name: "Swing Trader",    kelly: 0.40, edge: 0.04, position: 0.10, tp: 0.15, sl: 0.10, interval: 7200 },
+    StrategyPreset { name: "Ultra Safe",      kelly: 0.20, edge: 0.06, position: 0.05, tp: 0.05, sl: 0.05, interval: 3600 },
+    StrategyPreset { name: "Scalper",         kelly: 0.45, edge: 0.03, position: 0.08, tp: 0.03, sl: 0.03, interval: 1800 },
+    StrategyPreset { name: "Aggressive",      kelly: 0.50, edge: 0.03, position: 0.12, tp: 0.05, sl: 0.05, interval: 3600 },
+    StrategyPreset { name: "Berserker",       kelly: 0.60, edge: 0.06, position: 0.60, tp: 0.12, sl: 0.05, interval: 3600 },
+    StrategyPreset { name: "YOLO",            kelly: 0.70, edge: 0.05, position: 0.80, tp: 0.15, sl: 0.06, interval: 1800 },
+    StrategyPreset { name: "All-In",          kelly: 0.80, edge: 0.08, position: 1.00, tp: 0.25, sl: 0.00, interval: 3600 },
 ];
 
 fn parse_tp_sl(preset: &str) -> (f64, f64) {
@@ -434,11 +434,15 @@ fn generate_env_file(agent: &GeneratedAgent, _base_env: &HashMap<String, String>
     lines.push(format!("DB_PATH=data/{}.db", agent.id));
     lines.push(format!("PAPER_TRADING={}", if agent.paper_trading { "true" } else { "false" }));
 
-    // Extreme preset overrides: focus fire + no fill rejection + high confidence
+    // AGGRESSIVE MODE: Lower thresholds for faster profits
+    lines.push("MIN_CONFIDENCE=0.45".to_string());
+    lines.push("MAX_OPEN_POSITIONS=3".to_string());
+
+    // Extreme preset overrides: focus fire + no fill rejection
     if agent.position >= 0.50 {
         lines.push("MAX_OPEN_POSITIONS=1".to_string());
         lines.push("SIM_FILLS_ENABLED=false".to_string());
-        lines.push("MIN_CONFIDENCE=0.70".to_string());
+        lines.push("MIN_CONFIDENCE=0.50".to_string());
     }
 
     lines.join("\n")
@@ -2864,13 +2868,20 @@ function exitReasonBadge(reason) {
 function renderTpSlSettings(settings) {
     const wrap = document.getElementById('modal-tpsl-settings');
     if (!settings) { wrap.innerHTML = ''; return; }
+
+    // Convert decimal values to percentages
+    const tpPct = ((settings.exit_tp_pct || 0) * 100).toFixed(2);
+    const slPct = ((settings.exit_sl_pct || 0) * 100).toFixed(2);
+    const minConf = ((settings.min_confidence || 0) * 100).toFixed(0);
+    const minEdge = ((settings.min_edge || 0) * 100).toFixed(2);
+
     const items = [
-        { label: 'Take Profit', value: settings.exit_tp_pct || '0', suffix: '%' },
-        { label: 'Stop Loss', value: settings.exit_sl_pct || '0', suffix: '%' },
+        { label: 'Take Profit', value: tpPct, suffix: '%' },
+        { label: 'Stop Loss', value: slPct, suffix: '%' },
         { label: 'Price Check', value: settings.price_check_secs || 0, suffix: 's' },
         { label: 'Kill Threshold', value: '$' + (settings.kill_threshold || '0'), suffix: '' },
-        { label: 'Min Confidence', value: settings.min_confidence || '0', suffix: '' },
-        { label: 'Min Edge', value: settings.min_edge || '0', suffix: '' },
+        { label: 'Min Confidence', value: minConf, suffix: '%' },
+        { label: 'Min Edge', value: minEdge, suffix: '%' },
         { label: 'Max Positions', value: settings.max_open_positions || '0', suffix: '' },
     ];
     let html = '<div style="display:flex;flex-wrap:wrap;gap:8px;padding:4px 0">';

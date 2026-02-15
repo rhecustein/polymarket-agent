@@ -96,8 +96,23 @@ pub fn kelly_bet(
     result.full_kelly = kelly;
     result.adjusted_kelly = kelly * kelly_fraction;
 
-    // Cap at max position size
-    let bet_fraction = result.adjusted_kelly.min(max_pct);
+    // AUTO-SCALING: Increase position size as bankroll grows
+    // Start with base max_pct, then scale up linearly with bankroll
+    // Example: $100 → 1.0x, $200 → 1.5x, $500 → 2.5x, $1000 → 3.5x
+    let initial_bankroll = Decimal::new(100, 0); // Assume $100 starting point
+    let scale_factor = if bankroll > initial_bankroll {
+        let growth_ratio = bankroll / initial_bankroll;
+        // Scale factor: 1.0 + (growth_ratio - 1) * 0.5
+        // This means every 2x bankroll growth → 1.5x position size increase
+        Decimal::ONE + (growth_ratio - Decimal::ONE) * Decimal::new(5, 1)
+    } else {
+        Decimal::ONE
+    };
+
+    let scaled_max_pct = (max_pct * scale_factor).min(Decimal::new(80, 2)); // Cap at 80% max
+
+    // Cap at scaled max position size
+    let bet_fraction = result.adjusted_kelly.min(scaled_max_pct);
     result.bet_size = (bankroll * bet_fraction).round_dp(2);
 
     // Minimum trade size check ($0.10 for paper simulation, $0.50 for live)

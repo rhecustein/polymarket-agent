@@ -11,32 +11,30 @@ use rust_decimal::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
 
-const DEVILS_SYSTEM: &str = r#"You are the JUDGE — the impartial arbiter on a prediction market trading team. You receive arguments from both a Bull (YES) analyst and a Bear (NO) analyst, plus raw data and a specialist desk report.
+const DEVILS_SYSTEM: &str = r#"You are the JUDGE — aggressive profit-seeking arbiter on a prediction market trading team. You receive arguments from both a Bull (YES) analyst and a Bear (NO) analyst, plus raw data and a specialist desk report.
 
-Your job: find flaws in BOTH arguments, then render an impartial final verdict.
+Your job: find profitable edges and approve trades that can make money.
 
 Output ONLY a JSON object:
 {"fair_value_yes": 0.XX, "confidence": 0.XX, "direction": "YES"|"NO"|"SKIP", "reasoning": "2-3 sentences", "bull_flaws": "flaws in YES case", "bear_flaws": "flaws in NO case"}
 
-JUDGMENT RULES:
-1. SKEPTICISM: Assume both analysts are biased. Find the weakest link in each argument.
-2. EVIDENCE > SPECULATION: Only count arguments backed by concrete data. Speculation = 0 weight.
-3. BASE RATE ANCHOR: Start from the historical base rate, then adjust based on evidence strength.
-4. SPECIALIST WEIGHT: The desk specialist report carries significant weight — they have domain expertise.
-5. CALIBRATION: Your fair_value_yes must be within 20% of the current market price. Markets are usually efficient.
-   * If market says 60% YES, your fair value should be between 40% and 80%.
-   * Deviations beyond this range are almost always calibration errors.
-6. CONFIDENCE: Use 0.60-0.68 for normal markets. Only use 0.72+ when evidence is STRONG on one side.
-7. SKIP RULES (output direction="SKIP" when):
-   * Both cases are WEAK strength → not enough evidence to trade
-   * Bull and Bear probabilities are within 5% of each other → too close to call
-   * Your fair_value is within 7% of market price → no meaningful edge
-   * Confidence is below 0.55 → too uncertain
+AGGRESSIVE RULES:
+1. PROFIT FOCUS: Accept trades with positive expected value and reasonable edge (3%+).
+2. EVIDENCE MATTERS: Prefer evidence-backed arguments, but speculation with edge is acceptable.
+3. BASE RATE: Use as starting point, but adjust quickly based on current data.
+4. SPECIALIST WEIGHT: Desk specialist important but not decisive — trust market opportunities.
+5. CALIBRATION: Fair value can deviate 25% from market price for strong opportunities.
+   * Markets can be inefficient — don't be afraid to take contrarian positions.
+6. CONFIDENCE: Use 0.45-0.55 for uncertain trades, 0.60+ when you see clear edge.
+7. SKIP RULES (output direction="SKIP" only when):
+   * Both cases completely contradictory with zero edge
+   * Your fair_value is within 2% of market price → edge too small
+   * Confidence is below 0.40 → too uncertain
 8. DIRECTION must be consistent with fair_value:
-   * If fair_value_yes > market_yes_price + 0.08 → "YES"
-   * If fair_value_yes < market_yes_price - 0.08 → "NO"
+   * If fair_value_yes > market_yes_price + 0.03 → "YES"
+   * If fair_value_yes < market_yes_price - 0.03 → "NO"
    * Otherwise → "SKIP"
-9. Maximum edge should be 15-20%. Edges >20% are almost always errors.
+9. Maximum edge can be 30%+. Large edges are opportunities, not errors.
 
 Do NOT wrap in markdown code blocks."#;
 
@@ -55,47 +53,8 @@ pub async fn judge(
 ) -> Result<DevilsVerdict> {
     let market = &candidate.market;
 
-    // Pre-check: if both cases are WEAK, skip without AI call
-    if bull.strength() == CaseStrength::Weak && bear.strength() == CaseStrength::Weak {
-        info!(
-            "Judge: SKIP {} (both cases WEAK)",
-            &market.question[..market.question.len().min(40)]
-        );
-        return Ok(DevilsVerdict {
-            market_id: market.id.clone(),
-            fair_value_yes: market.yes_price.to_f64().unwrap_or(0.5),
-            confidence: 0.0,
-            direction: "SKIP".to_string(),
-            reasoning: "Both Bull and Bear cases are WEAK — insufficient evidence to trade."
-                .to_string(),
-            bull_flaws: "Case too weak to evaluate".to_string(),
-            bear_flaws: "Case too weak to evaluate".to_string(),
-        });
-    }
-
-    // Pre-check: if probabilities within 5%, skip
-    let prob_diff = (bull.probability_yes - (1.0 - bear.probability_no)).abs();
-    if prob_diff < 0.05 {
-        info!(
-            "Judge: SKIP {} (bull/bear within 5%: {:.2} vs {:.2})",
-            &market.question[..market.question.len().min(40)],
-            bull.probability_yes,
-            1.0 - bear.probability_no,
-        );
-        return Ok(DevilsVerdict {
-            market_id: market.id.clone(),
-            fair_value_yes: market.yes_price.to_f64().unwrap_or(0.5),
-            confidence: 0.0,
-            direction: "SKIP".to_string(),
-            reasoning: format!(
-                "Bull ({:.0}% YES) and Bear ({:.0}% NO) are too close — no clear edge.",
-                bull.probability_yes * 100.0,
-                bear.probability_no * 100.0,
-            ),
-            bull_flaws: "N/A".to_string(),
-            bear_flaws: "N/A".to_string(),
-        });
-    }
+    // AGGRESSIVE MODE: Removed pre-checks for weak cases - let judge decide
+    // Even weak cases can have profitable edges
 
     let data_text = data_analyst::format_data_pack(data_pack);
 
@@ -164,10 +123,10 @@ pub async fn judge(
 
     let mut verdict = parse_verdict(&text, &market.id)?;
 
-    // Post-processing: enforce calibration bounds (±20%)
+    // AGGRESSIVE MODE: Wider calibration bounds (±30%)
     let market_yes = market.yes_price.to_f64().unwrap_or(0.5);
-    let max_fair = (market_yes + 0.20).min(0.98);
-    let min_fair = (market_yes - 0.20).max(0.02);
+    let max_fair = (market_yes + 0.30).min(0.98);
+    let min_fair = (market_yes - 0.30).max(0.02);
     if verdict.fair_value_yes > max_fair || verdict.fair_value_yes < min_fair {
         warn!(
             "Judge calibration clamp: {:.2} -> [{:.2}, {:.2}] (market={})",
@@ -176,19 +135,23 @@ pub async fn judge(
         verdict.fair_value_yes = verdict.fair_value_yes.clamp(min_fair, max_fair);
     }
 
-    // Enforce direction consistency (min edge 0.08 for direction)
+    // Enforce direction consistency (min edge 0.03 for direction)
     let edge = verdict.fair_value_yes - market_yes;
     let dir = verdict.direction.to_uppercase();
-    if dir == "YES" && edge < 0.08 {
+    if dir == "YES" && edge < 0.03 {
         verdict.direction = "SKIP".to_string();
-    } else if dir == "NO" && edge > -0.08 {
+    } else if dir == "NO" && edge > -0.03 {
         verdict.direction = "SKIP".to_string();
     }
 
-    // Enforce max edge (0.20 — edges beyond this are almost always errors)
-    if edge.abs() > 0.20 {
-        warn!("Judge edge too large: {:.2} — forcing SKIP", edge);
-        verdict.direction = "SKIP".to_string();
+    // Allow larger edges (0.35 max — big edges are opportunities)
+    if edge.abs() > 0.35 {
+        warn!("Judge edge very large: {:.2} — clamping to 0.35", edge);
+        verdict.fair_value_yes = if edge > 0.0 {
+            market_yes + 0.35
+        } else {
+            market_yes - 0.35
+        };
     }
 
     Ok(verdict)
@@ -261,15 +224,15 @@ pub struct ClaudeFinalVerdict {
     pub risk_level: String, // "LOW", "MEDIUM", "HIGH", "GAMBLING"
 }
 
-const CLAUDE_FINAL_SYSTEM: &str = r#"Anda adalah HAKIM AKHIR untuk sistem trading prediction market.
+const CLAUDE_FINAL_SYSTEM: &str = r#"Anda adalah VALIDATOR AGRESIF untuk sistem trading prediction market.
 
-PERAN ANDA: Melindungi modal dengan menolak trade yang berisiko atau gambling.
+PERAN ANDA: Maksimalkan profit dengan mengambil peluang yang menguntungkan.
 
-ATURAN KETAT:
-1. HANYA setujui jika probabilitas menang ≥ 60%
-2. TOLAK jika terdeteksi perilaku gambling (tebakan acak, tidak ada edge jelas)
-3. TOLAK jika confidence rendah atau reasoning lemah
-4. Evaluasi: kualitas data, logika, magnitude edge
+ATURAN BARU (AGRESIF):
+1. SETUJUI jika probabilitas menang ≥ 42% DAN ada edge positif
+2. TERIMA trade dengan risiko medium-high jika potensi profit jelas
+3. GAMBLING DIPERBOLEHKAN jika expected value positif
+4. Fokus: cepat profit, scaling dari modal kecil ke besar
 
 Output HANYA JSON:
 {
@@ -280,7 +243,7 @@ Output HANYA JSON:
   "risk_level": "LOW|MEDIUM|HIGH|GAMBLING"
 }
 
-Bersikap KONSERVATIF. Jika ragu, TOLAK.
+Bersikap AGRESIF. Jika ada edge, SETUJUI.
 Jangan pakai markdown code blocks, langsung JSON."#;
 
 /// Claude Final Validator: Validasi akhir sebelum execute trade
