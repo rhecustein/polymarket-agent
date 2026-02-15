@@ -4,7 +4,7 @@
 # ══════════════════════════════════════════════
 
 # ── Stage 1: Builder ──
-FROM rust:1.83-slim-bookworm AS builder
+FROM rust:latest AS builder
 
 WORKDIR /build
 
