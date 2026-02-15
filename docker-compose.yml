@@ -2,36 +2,67 @@ version: '3.8'
 
 services:
   # ══════════════════════════════════════════════
-  # Polymarket Agent - Unified Service
-  # Runs both proxy (3001) + dashboard (3000)
-  # Matches run.sh behavior in Docker
+  # Polymarket Proxy API (Port 3001)
+  # Matches run.sh behavior - starts first
   # ══════════════════════════════════════════════
-  polymarket:
+  proxy:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: polymarket-agent
+      target: proxy
+    container_name: polymarket-proxy
     restart: unless-stopped
     ports:
-      - "3000:3000"  # Dashboard
       - "3001:3001"  # Proxy API
     env_file:
       - .env
     environment:
       - RUST_LOG=${RUST_LOG:-info}
     volumes:
-      # Persistent data for agent databases
+      # Persistent data for proxy database (data/proxy.db)
       - agent-data:/app/data
-      # Agent configurations
-      - agent-configs:/app/configs
     networks:
       - polymarket-net
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/3001' && timeout 5 bash -c '</dev/tcp/localhost/3000' || exit 1"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/3001' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 20s
+      start_period: 10s
+
+  # ══════════════════════════════════════════════
+  # Polymarket Dashboard (Port 3000)
+  # Manages agents - matches run.sh behavior
+  # ══════════════════════════════════════════════
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dashboard
+    container_name: polymarket-dashboard
+    restart: unless-stopped
+    ports:
+      - "3000:3000"  # Dashboard UI
+    env_file:
+      - .env
+    environment:
+      - RUST_LOG=${RUST_LOG:-info}
+    volumes:
+      # Persistent data for agent databases (data/{agent-id}.db)
+      - agent-data:/app/data
+      # Agent configurations (configs/{agent-id}.env)
+      - agent-configs:/app/configs
+    networks:
+      - polymarket-net
+    depends_on:
+      proxy:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/3000' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
 # ══════════════════════════════════════════════
 # Volumes - Persistent storage
