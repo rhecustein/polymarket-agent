@@ -29,10 +29,21 @@ RUN mkdir -p agent/src/bin && \
 COPY agent/src ./agent/src
 
 # Clean cache and build for real
-# Update cargo index and clean old deps to avoid cache issues
-RUN cargo update --manifest-path agent/Cargo.toml && \
+# Add extensive debugging for deployment troubleshooting
+RUN echo "=== Starting cargo build ===" && \
+    echo "Rust version: $(rustc --version)" && \
+    echo "Cargo version: $(cargo --version)" && \
+    echo "=== Updating dependencies ===" && \
+    cargo update --manifest-path agent/Cargo.toml 2>&1 | tee /tmp/cargo-update.log || \
+    (echo "Cargo update failed!" && cat /tmp/cargo-update.log && exit 1) && \
+    echo "=== Cleaning old deps ===" && \
     rm -rf target/release/deps/polymarket* target/release/deps/dashboard* && \
-    cargo build --release --manifest-path agent/Cargo.toml -j 2
+    echo "=== Building with cargo (this may take several minutes) ===" && \
+    cargo build --release --manifest-path agent/Cargo.toml -j 2 2>&1 | tee /tmp/cargo-build.log || \
+    (echo "=== CARGO BUILD FAILED ===" && \
+     echo "Last 100 lines of build output:" && \
+     tail -100 /tmp/cargo-build.log && \
+     exit 1)
 
 # ── Stage 2: Runtime ──
 FROM debian:bookworm-slim
